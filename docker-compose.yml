@@ -1,0 +1,17 @@
+version: '3.8'
+
+services:
+  tgmr:
+    container_name: tgmr
+    build: .
+    restart: unless-stopped
+    environment:
+      - BOT_TOKEN=your_telegram_bot_token_here
+      - MAX_FILE_SIZE=50000000
+      - DOWNLOAD_TIMEOUT=300
+      - RATE_LIMIT=10
+      - COOLDOWN=60
+      - TMP_DIR=/tmp/tgmr
+      - SUPPORTED_DOMAINS=bandcamp.com,youtube.com,youtu.be,vimeo.com,soundcloud.com,mixcloud.com,instagram.com,twitter.com,x.com
+    tmpfs:
+      - /tmp/tgmr:exec,size=1G
