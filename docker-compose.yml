@@ -13,5 +13,13 @@ services:
       - COOLDOWN=60
       - TMP_DIR=/tmp/tgmr
       - SUPPORTED_DOMAINS=bandcamp.com,youtube.com,youtu.be,vimeo.com,soundcloud.com,mixcloud.com,instagram.com,twitter.com,x.com
+      # Cookie configuration (optional)
+      # - COOKIES_FILE=/cookies/default.txt  # Default fallback for all sites
+      # - COOKIES_FILE_YOUTUBE=/cookies/youtube.txt
+      # - COOKIES_FILE_INSTAGRAM=/cookies/instagram.txt
+      # - COOKIES_FILE_TWITTER=/cookies/twitter.txt  # Will be used for both twitter.com and x.com
+    # volumes:
+      # Mount cookies directory with write support (yt-dlp updates cookies)
+      # - ./cookies:/cookies
     tmpfs:
       - /tmp/tgmr:exec,size=1G

@@ -42,6 +42,47 @@ Environment variables in `docker-compose.yml`:
 | `COOLDOWN` | Cooldown between requests in seconds | 60 |
 | `TMP_DIR` | Temporary directory for downloads | /tmp/tgmr |
 | `SUPPORTED_DOMAINS` | Comma-separated list of domains | youtube.com,youtu.be,... |
+| `COOKIES_FILE` | Default cookies file (fallback) | '' |
+| `COOKIES_FILE_*` | Site-specific cookies (e.g., COOKIES_FILE_YOUTUBE) | '' |
+
+### Cookie Configuration
+
+To handle rate limiting and authentication for different platforms, you can configure cookies per site:
+
+1. Create a `cookies` directory in your project:
+   ```bash
+   mkdir cookies
+   ```
+
+2. Add your cookie files for different sites. You can export cookies from your browser using extensions like "Get cookies.txt" or similar:
+   ```bash
+   cookies/
+   ├── youtube.txt     # YouTube cookies
+   ├── instagram.txt   # Instagram cookies
+   ├── twitter.txt     # Twitter/X cookies
+   └── default.txt     # Default fallback cookies
+   ```
+
+3. Configure the cookie files in `docker-compose.yml`:
+   ```yaml
+   environment:
+     # Default fallback for all sites
+     - COOKIES_FILE=/cookies/default.txt
+     # Site-specific cookies
+     - COOKIES_FILE_YOUTUBE=/cookies/youtube.txt
+     - COOKIES_FILE_INSTAGRAM=/cookies/instagram.txt
+     - COOKIES_FILE_TWITTER=/cookies/twitter.txt  # Used for both twitter.com and x.com
+   volumes:
+     - ./cookies:/cookies  # Yt-dlp updates cookies
+   ```
+
+Special cases:
+- `COOKIES_FILE_YOUTUBE` works for both youtube.com and youtu.be
+- `COOKIES_FILE_TWITTER` works for both twitter.com and x.com
+- For other sites, use `COOKIES_FILE_SITENAME` where SITENAME is the domain without the extension
+- `COOKIES_FILE` serves as a fallback for sites without specific cookie files
+
+Note: Keep your cookie files secure as they contain sensitive authentication data.
 
 ## Usage
 

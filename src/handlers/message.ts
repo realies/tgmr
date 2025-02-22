@@ -104,16 +104,21 @@ export async function handleMessage(ctx: Context): Promise<void> {
   const chatType = ctx.chat?.type;
   const isAnonymousAdmin = ctx.from?.username === 'GroupAnonymousBot';
   
-  // Enhanced logging for group messages
-  logger.info(
-    `Processing message: type=${chatType}, ` +
-    `chat=${chatId}, ` +
-    `from=${isAnonymousAdmin ? 'AnonymousAdmin' : username || userId}, ` +
-    `text=${messageText?.substring(0, 100)}`
-  );
+  // Create context object for logging
+  const logContext = {
+    type: chatType,
+    chat: chatId,
+    from: isAnonymousAdmin ? 'AnonymousAdmin' : username || userId,
+    msgId: messageId
+  };
+
+  logger.info('Processing message', {
+    ...logContext,
+    text: messageText?.substring(0, 100)
+  });
   
   if (!messageText || !chatId) {
-    logger.warn(`Skipping message due to missing text or chatId (type: ${chatType})`);
+    logger.warn('Skipping message due to missing text or chatId', logContext);
     return;
   }
 
@@ -133,7 +138,7 @@ export async function handleMessage(ctx: Context): Promise<void> {
     if (urls.length === 0) return;
 
     const url = urls[0];
-    logger.info(`${requestId} ${userInfo} requested: ${url}`);
+    logger.info(`${userInfo} requested: ${url}`, { ...logContext, requestId });
     
     const downloader = MediaDownloader.getInstance();
     const actionManager = new ChatActionManager(ctx, chatId);
@@ -142,7 +147,7 @@ export async function handleMessage(ctx: Context): Promise<void> {
       await actionManager.start("typing");
 
       // Get media info first to determine format
-      logger.info(`${requestId} Fetching media info...`);
+      logger.info('Fetching media info...', { ...logContext, requestId });
       const mediaInfo = await withRetry(
         () => downloader.getMediaInfo(url),
         {
@@ -154,7 +159,7 @@ export async function handleMessage(ctx: Context): Promise<void> {
 
       if (!mediaInfo) {
         actionManager.stop();
-        logger.warn(`${requestId} Failed to get media information after retries`);
+        logger.warn('Failed to get media information after retries', { ...logContext, requestId });
         await ctx.reply('Failed to get media information after several attempts', {
           reply_to_message_id: messageId,
         });
@@ -166,7 +171,7 @@ export async function handleMessage(ctx: Context): Promise<void> {
       await actionManager.start(action);
 
       // Download the media
-      logger.info(`${requestId} Downloading ${mediaInfo.format} from ${url}`);
+      logger.info(`Downloading ${mediaInfo.format} from ${url}`, { ...logContext, requestId });
       const result = await withRetry(
         () => downloader.download(url, {
           maxFileSize: env.MAX_FILE_SIZE,
@@ -185,7 +190,7 @@ export async function handleMessage(ctx: Context): Promise<void> {
 
       if (!result.success || !result.filePath || !result.mediaInfo) {
         const errorMessage = result.error || 'Unknown error';
-        logger.error(`${requestId} Failed to process media after retries: ${errorMessage}`);
+        logger.error(`Failed to process media after retries: ${errorMessage}`, null, { ...logContext, requestId });
         await ctx.reply(`Failed to process media after several attempts: ${errorMessage}`, {
           reply_to_message_id: messageId,
         });
@@ -233,7 +238,7 @@ export async function handleMessage(ctx: Context): Promise<void> {
 
       // Check file size before attempting to send
       if (fileSize > env.MAX_FILE_SIZE) {
-        logger.warn(`${requestId} File size ${fileSizeMB}MB exceeds limit of ${env.MAX_FILE_SIZE / 1024 / 1024}MB`);
+        logger.warn(`File size ${fileSizeMB}MB exceeds limit of ${env.MAX_FILE_SIZE / 1024 / 1024}MB`, { ...logContext, requestId });
         await ctx.reply(
           `Sorry, this media file (${fileSizeMB}MB) exceeds Telegram's size limit (${env.MAX_FILE_SIZE / 1024 / 1024}MB). Try a shorter clip or lower quality version.`,
           { reply_to_message_id: messageId }
@@ -252,7 +257,7 @@ export async function handleMessage(ctx: Context): Promise<void> {
         `\`${escapedInfo}${fileSize ? `, ${escapedSize}MB` : ''}\``,
       ].join('\n');
 
-      logger.info(`${requestId} Sending ${result.mediaInfo.format} to ${userInfo}`);
+      logger.info(`Sending ${result.mediaInfo.format} to ${userInfo}`, { ...logContext, requestId });
 
       // Store format before the retry to ensure it's available
       const format = result.mediaInfo.format;
@@ -271,7 +276,7 @@ export async function handleMessage(ctx: Context): Promise<void> {
             let thumbnail: InputFile | undefined;
             if (result.mediaInfo?.thumbnail) {
               try {
-                logger.info(`${requestId} Downloading thumbnail: ${result.mediaInfo.thumbnail}`);
+                logger.info('Downloading thumbnail', { ...logContext, requestId, url: result.mediaInfo.thumbnail });
                 const thumbnailPath = `${result.filePath}.thumb.jpg`;
                 
                 // Download and convert to JPEG in one step
@@ -281,15 +286,14 @@ export async function handleMessage(ctx: Context): Promise<void> {
                 const stats = await statAsync(thumbnailPath);
                 if (stats.size === 0) throw new Error('Thumbnail is empty');
                 
-                logger.info(`${requestId} Thumbnail downloaded successfully: ${stats.size} bytes`);
+                logger.info('Thumbnail downloaded successfully', { ...logContext, requestId, size: stats.size });
                 thumbnail = new InputFile(createReadStream(thumbnailPath));
               } catch (error) {
-                logger.warn(`${requestId} Failed to process thumbnail: ${error}`);
-                // Don't set thumbnail if there was an error
+                logger.warn('Failed to process thumbnail', { ...logContext, requestId, error });
                 thumbnail = undefined;
               }
             } else {
-              logger.info(`${requestId} No thumbnail URL provided by yt-dlp`);
+              logger.debug('No thumbnail URL provided by yt-dlp', { ...logContext, requestId });
             }
 
             await ctx.replyWithVideo(mediaStream, {
@@ -305,7 +309,7 @@ export async function handleMessage(ctx: Context): Promise<void> {
               try {
                 await unlinkAsync(`${result.filePath}.thumb.jpg`);
               } catch (error) {
-                logger.warn(`${requestId} Failed to cleanup thumbnail: ${error}`);
+                logger.warn('Failed to cleanup thumbnail', { ...logContext, requestId, error });
               }
             }
           }
@@ -329,9 +333,9 @@ export async function handleMessage(ctx: Context): Promise<void> {
 
       // Clean up
       await downloader.cleanup(result.filePath);
-      logger.info(`${requestId} Successfully processed media request for ${userInfo}`);
+      logger.info(`Successfully processed media request for ${userInfo}`, { ...logContext, requestId });
     } catch (error) {
-      logger.error(`${requestId} Error processing message for ${userInfo}`, error);
+      logger.error(`Error processing message for ${userInfo}`, error, { ...logContext, requestId });
       try {
         let errorMessage = 'Sorry, something went wrong while processing your request.';
         
@@ -344,14 +348,14 @@ export async function handleMessage(ctx: Context): Promise<void> {
           reply_to_message_id: messageId,
         });
       } catch (replyError) {
-        logger.error(`${requestId} Failed to send error message to ${userInfo}`, replyError);
+        logger.error('Failed to send error message', replyError, { ...logContext, requestId });
       }
     } finally {
       // Always ensure we stop any ongoing action
       actionManager.stop();
     }
   } catch (error) {
-    logger.error(`${requestId} Error processing message`, error);
+    logger.error('Error processing message', error, { ...logContext, requestId });
     try {
       let errorMessage = 'Sorry, something went wrong while processing your request.';
       
@@ -364,7 +368,7 @@ export async function handleMessage(ctx: Context): Promise<void> {
         reply_to_message_id: messageId,
       });
     } catch (replyError) {
-      logger.error(`${requestId} Failed to send error message`, replyError);
+      logger.error('Failed to send error message', replyError, { ...logContext, requestId });
     }
   }
 }

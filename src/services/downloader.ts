@@ -3,6 +3,8 @@ import { promisify } from 'util';
 import { unlink } from 'fs/promises';
 import type { DownloadOptions, DownloadResult } from '../types/index.js';
 import { logger } from '../utils/logger.js';
+import { withRetry } from '../utils/retry.js';
+import { env, getCookieFileForDomain } from '../config/env.js';
 
 const execAsync = promisify(exec);
 
@@ -58,12 +60,30 @@ export class MediaDownloader {
     return MediaDownloader.instance;
   }
 
+  private getYtDlpCookieArgs(url: string): string[] {
+    const args: string[] = [];
+    try {
+      // Extract domain from URL
+      const domain = new URL(url).hostname.replace(/^www\./, '');
+      const cookieFile = getCookieFileForDomain(domain);
+
+      if (cookieFile) {
+        args.push(`--cookies ${shellEscape(cookieFile)}`);
+      }
+    } catch (error) {
+      logger.warn('Failed to parse URL for cookie configuration', { url, error });
+    }
+    return args;
+  }
+
   /**
    * Gets media information without downloading
    */
   public async getMediaInfo(url: string): Promise<MediaMetadata | null> {
     try {
-      const formats = await this.getFormats(url);
+      // Get formats with retries
+      const formats = await withRetry(() => this.getFormats(url));
+
       const printTemplate = [
         '{',
         '"url": %(url)j,',
@@ -78,13 +98,15 @@ export class MediaDownloader {
         '--no-download',
         `--print ${shellEscape(printTemplate)}`,
         '--no-playlist',
+        ...this.getYtDlpCookieArgs(url),
         shellEscape(url),
       ].join(' ');
 
-      const { stdout, stderr } = await execAsync(command);
+      // Execute with retries
+      const { stdout, stderr } = await withRetry(() => execAsync(command));
       
       if (stderr) {
-        logger.warn(`yt-dlp stderr: ${stderr}`);
+        logger.warn('yt-dlp warning', { command: 'getMediaInfo', stderr });
       }
 
       const cleanJson = stdout.replace(/: NA,/g, ': null,').replace(/: NA}/g, ': null}');
@@ -102,9 +124,9 @@ export class MediaDownloader {
         formats,
       };
     } catch (error) {
-      logger.error('Failed to get media info:', error);
+      logger.error('Failed to get media info', error, { command: 'getMediaInfo', url });
       if (error instanceof Error && 'stderr' in error) {
-        logger.error('yt-dlp error output:', error.stderr);
+        logger.error('yt-dlp error', null, { command: 'getMediaInfo', stderr: error.stderr });
       }
       return null;
     }
@@ -116,20 +138,29 @@ export class MediaDownloader {
       '--no-download',
       '--print-json',
       '--no-playlist',
+      ...this.getYtDlpCookieArgs(url),
       shellEscape(url),
     ].join(' ');
 
-    const { stdout } = await execAsync(command);
-    const info = JSON.parse(stdout);
-    return info.formats || [];
+    try {
+      const { stdout, stderr } = await execAsync(command);
+
+      if (stderr) {
+        logger.warn('yt-dlp warning', { command: 'getFormats', stderr });
+      }
+
+      const info = JSON.parse(stdout);
+      return info.formats || [];
+    } catch (error) {
+      logger.error('Failed to get formats', error, { command: 'getFormats', url });
+      throw error;
+    }
   }
 
   private selectBestFormat(formats: FormatInfo[], options: DownloadOptions): string {
-    if (options.format === 'audio') {
-      return 'bestaudio[acodec=opus]/bestaudio';
-    } else {
-      return 'best';
-    }
+    const formatSpec = options.format === 'audio' ? 'bestaudio[acodec=opus]/bestaudio' : 'best';
+    logger.debug('Selected format spec', { command: 'selectBestFormat', formatSpec });
+    return formatSpec;
   }
 
   /**
@@ -143,7 +174,7 @@ export class MediaDownloader {
       // Select the best format that meets our criteria
       const formatSpec = this.selectBestFormat(formats, options);
       
-      logger.info(`Selected format spec: ${formatSpec}`);
+      logger.info('Selected format spec', { command: 'download', formatSpec });
 
       const outputTemplate = `${this.downloadPath}/%(title)s-%(id)s.%(ext)s`;
       
@@ -158,14 +189,19 @@ export class MediaDownloader {
         '--no-write-description',
         '--no-write-thumbnail',
         '--no-progress',
+        ...this.getYtDlpCookieArgs(url),
         shellEscape(url),
       ].join(' ');
 
-      const { stdout } = await execAsync(command, { timeout: options.timeout * 1000 });
-      
+      const { stdout, stderr } = await execAsync(command, { timeout: options.timeout * 1000 });
+
+      if (stderr) {
+        logger.warn('yt-dlp warning', { command: 'download', stderr });
+      }
+
       // Extract file path from output
       const filePath = this.extractFilePath(stdout);
-      
+
       if (!filePath) {
         return { success: false, error: 'Failed to extract downloaded file path' };
       }
@@ -177,6 +213,7 @@ export class MediaDownloader {
       };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+      logger.error('Failed to download media', error, { command: 'download', url });
       return { success: false, error: errorMessage };
     }
   }
