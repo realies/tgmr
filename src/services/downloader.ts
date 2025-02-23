@@ -148,9 +148,23 @@ export class MediaDownloader {
           };
         });
 
+        // Build title from available metadata
+        let title = '';
+        if (postMetadata.tweet_text) {
+          title = postMetadata.tweet_text;
+        } else if (postMetadata.description) {
+          title = postMetadata.description;
+        } else if (postMetadata.text) {
+          title = postMetadata.text;
+        } else if (postMetadata.content) {
+          title = postMetadata.content;
+        } else {
+          title = 'No title';
+        }
+
         return {
           url,
-          title: postMetadata.description || 'No title',
+          title,
           format: 'image',
           thumbnail: mediaTypes[0]?.display_url,
           mediaTypes,
