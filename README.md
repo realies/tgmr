@@ -1,10 +1,11 @@
 # TGMR (Telegram Media Reply)
 
-A Telegram bot that automatically downloads and replies with media content when users share links in messages. Built with TypeScript and powered by yt-dlp.
+A Telegram bot that automatically downloads and replies with media content when users share links in messages. Built with TypeScript and powered by yt-dlp and gallery-dl.
 
 ## Features
 
-- Automatically processes media links in messages (supports all platforms that yt-dlp can handle)
+- Automatically processes media links in messages (supports all platforms that yt-dlp and gallery-dl can handle)
+- Downloads high-quality images from supported platforms (Instagram, Twitter, etc.)
 - Sends audio-only content as voice messages
 - Sends videos with thumbnails and proper aspect ratio
 - Works in both private chats and groups
@@ -16,6 +17,8 @@ A Telegram bot that automatically downloads and replies with media content when 
 
 - Docker (recommended for deployment)
 - Telegram Bot Token (get it from [@BotFather](https://t.me/botfather))
+- yt-dlp (for video/audio content)
+- gallery-dl (for image content)
 
 ## Quick Start
 

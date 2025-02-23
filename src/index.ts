@@ -8,10 +8,21 @@ async function main(): Promise<void> {
     await Cleanup.init();
     Cleanup.startPeriodicCleanup();
     logger.info('Started cleanup service');
-    
+
     // Start the bot
     const bot = await createBot();
     logger.info('Starting bot...');
+
+    // Validate token first
+    try {
+      await bot.api.getMe();
+    } catch (error) {
+      if (error instanceof Error && error.message.includes('404: Not Found')) {
+        logger.error('Invalid bot token');
+        process.exit(1);
+      }
+      throw error;
+    }
 
     // Start bot with long polling
     await bot.start({

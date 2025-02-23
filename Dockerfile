@@ -18,7 +18,7 @@ FROM node:slim AS runner
 
 WORKDIR /app
 
-# Install yt-dlp and ffmpeg
+# Install yt-dlp, gallery-dl, and ffmpeg
 RUN apt-get update && \
     apt-get install -y python3 python3-full pipx ffmpeg && \
     # Setup pipx for non-root user
@@ -26,8 +26,10 @@ RUN apt-get update && \
     chown -R node:node /home/node/.local && \
     # Switch to non-root user for pipx install
     su node -c "pipx install yt-dlp" && \
+    su node -c "pipx install gallery-dl" && \
     # Verify installations
     su node -c "/home/node/.local/bin/yt-dlp --version" && \
+    su node -c "/home/node/.local/bin/gallery-dl --version" && \
     ffmpeg -version && \
     # Cleanup
     apt-get clean && \
@@ -48,7 +50,7 @@ USER node
 # Add local bin to PATH
 ENV PATH="/home/node/.local/bin:${PATH}"
 
-# Verify yt-dlp works as non-root user
-RUN yt-dlp --version
+# Verify tools work as non-root user
+RUN yt-dlp --version && gallery-dl --version
 
 CMD ["node", "dist/index.js"]

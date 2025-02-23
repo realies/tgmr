@@ -12,7 +12,7 @@ services:
       - RATE_LIMIT=10
       - COOLDOWN=60
       - TMP_DIR=/tmp/tgmr
-      - SUPPORTED_DOMAINS=bandcamp.com,youtube.com,youtu.be,vimeo.com,soundcloud.com,mixcloud.com,instagram.com,twitter.com,x.com
+      - SUPPORTED_DOMAINS=bandcamp.com,facebook.com,youtube.com,youtu.be,vimeo.com,soundcloud.com,mixcloud.com,instagram.com,twitter.com,x.com
       # Cookie configuration (optional)
       # - COOKIES_FILE=/cookies/default.txt  # Default fallback for all sites
       # - COOKIES_FILE_YOUTUBE=/cookies/youtube.txt

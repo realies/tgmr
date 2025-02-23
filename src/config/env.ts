@@ -15,7 +15,7 @@ export const getCookieFileForDomain = (domain: string): string | null => {
     .filter(([key]) => key.startsWith('COOKIES_FILE_'))
     .map(([key, value]) => ({
       site: key.replace('COOKIES_FILE_', '').toLowerCase(),
-      path: value
+      path: value,
     }));
 
   // Find matching cookie file based on domain

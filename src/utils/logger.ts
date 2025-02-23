@@ -1,8 +1,15 @@
 class Logger {
   private static instance: Logger;
   private appName = 'tgmr';
+  private logLevel: 'debug' | 'info' | 'warn' | 'error' = 'info'; // Default to info level
 
-  private constructor() {}
+  private constructor() {
+    // Set log level from environment variable if present
+    const envLogLevel = process.env.LOG_LEVEL?.toLowerCase();
+    if (envLogLevel && ['debug', 'info', 'warn', 'error'].includes(envLogLevel)) {
+      this.logLevel = envLogLevel as 'debug' | 'info' | 'warn' | 'error';
+    }
+  }
 
   public static getInstance(): Logger {
     if (!Logger.instance) {
@@ -11,16 +18,26 @@ class Logger {
     return Logger.instance;
   }
 
-  private formatMessage(level: string, message: string, context?: Record<string, unknown>): string {
-    const timestamp = new Date().toISOString();
-    let formattedMessage = `${this.appName} | [${timestamp}] ${level}:`;
+  private shouldLog(level: string): boolean {
+    const levels = ['debug', 'info', 'warn', 'error'];
+    const currentLevel = levels.indexOf(this.logLevel);
+    const messageLevel = levels.indexOf(level.toLowerCase());
+    return messageLevel >= currentLevel;
+  }
 
-    // Add context if provided
+  private formatMessage(level: string, message: string, context?: Record<string, unknown>): string {
+    let formattedMessage = `${this.appName} | ${level}:`;
+
+    // Only add essential context
     if (context) {
-      const contextStr = Object.entries(context)
+      const essentialKeys = ['type', 'chat', 'from', 'msgId', 'requestId'];
+      const essentialContext = Object.entries(context)
+        .filter(([key]) => essentialKeys.includes(key))
         .map(([key, value]) => `${key}=${value}`)
         .join(' ');
-      formattedMessage += ` [${contextStr}]`;
+      if (essentialContext) {
+        formattedMessage += ` [${essentialContext}]`;
+      }
     }
 
     formattedMessage += ` ${message}`;
@@ -28,12 +45,11 @@ class Logger {
   }
 
   private colorize(level: string, message: string): string {
-    // ANSI escape codes for colors
     const colors = {
       RESET: '\x1b[0m',
       ERROR: '\x1b[31m', // Red
-      WARN: '\x1b[33m',  // Yellow
-      INFO: '\x1b[36m',  // Cyan
+      WARN: '\x1b[33m', // Yellow
+      INFO: '\x1b[36m', // Cyan
       DEBUG: '\x1b[90m', // Gray
     } as const;
 
@@ -42,17 +58,16 @@ class Logger {
   }
 
   public info(message: string, context?: Record<string, unknown>): void {
+    if (!this.shouldLog('info')) return;
     const formattedMessage = this.formatMessage('INFO', message, context);
-    console.log(this.colorize('INFO', formattedMessage));
+    process.stdout.write(this.colorize('INFO', formattedMessage) + '\n');
   }
 
   public error(message: string, error?: unknown, context?: Record<string, unknown>): void {
+    if (!this.shouldLog('error')) return;
     let errorDetails = '';
     if (error instanceof Error) {
       errorDetails = `: ${error.message}`;
-      if (error.stack) {
-        errorDetails += `\n${error.stack}`;
-      }
     } else if (error) {
       errorDetails = `: ${String(error)}`;
     }
@@ -62,13 +77,15 @@ class Logger {
   }
 
   public warn(message: string, context?: Record<string, unknown>): void {
+    if (!this.shouldLog('warn')) return;
     const formattedMessage = this.formatMessage('WARN', message, context);
     console.warn(this.colorize('WARN', formattedMessage));
   }
 
   public debug(message: string, context?: Record<string, unknown>): void {
+    if (!this.shouldLog('debug')) return;
     const formattedMessage = this.formatMessage('DEBUG', message, context);
-    console.debug(this.colorize('DEBUG', formattedMessage));
+    process.stdout.write(this.colorize('DEBUG', formattedMessage) + '\n');
   }
 }
 

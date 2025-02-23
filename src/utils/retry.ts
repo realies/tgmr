@@ -25,7 +25,7 @@ const defaultOptions: Required<RetryOptions> = {
 
 export async function withRetry<T>(
   operation: () => Promise<T>,
-  options: RetryOptions = {},
+  options: RetryOptions = {}
 ): Promise<T> {
   const opts = { ...defaultOptions, ...options };
   let lastError: Error | undefined;
@@ -37,10 +37,8 @@ export async function withRetry<T>(
     } catch (error) {
       lastError = error as Error;
       const errorMessage = lastError.message || String(error);
-      const isRetryable = opts.retryableErrors.some(pattern =>
-        typeof pattern === 'string'
-          ? errorMessage.includes(pattern)
-          : pattern.test(errorMessage)
+      const isRetryable = opts.retryableErrors.some((pattern) =>
+        typeof pattern === 'string' ? errorMessage.includes(pattern) : pattern.test(errorMessage)
       );
 
       if (!isRetryable || attempt === opts.maxAttempts) {
@@ -50,10 +48,10 @@ export async function withRetry<T>(
       logger.warn(
         `Operation failed (attempt ${attempt}/${opts.maxAttempts}), retrying in ${
           delay / 1000
-        }s: ${errorMessage}`,
+        }s: ${errorMessage}`
       );
 
-      await new Promise(resolve => setTimeout(resolve, delay));
+      await new Promise((resolve) => setTimeout(resolve, delay));
       delay = Math.min(delay * opts.backoffFactor, opts.maxDelay);
     }
   }

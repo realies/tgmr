@@ -14,7 +14,7 @@ export class Cleanup {
       // Only remove contents of the directory, not the directory itself
       const files = await readdir(env.TMP_DIR);
       await Promise.all(
-        files.map(file => rm(join(env.TMP_DIR, file), { recursive: true, force: true }))
+        files.map((file) => rm(join(env.TMP_DIR, file), { recursive: true, force: true }))
       );
       logger.info(`Initialized temp directory: ${env.TMP_DIR}`);
     } catch (error) {
@@ -53,7 +53,8 @@ export class Cleanup {
   /**
    * Starts periodic cleanup of old files
    */
-  public static startPeriodicCleanup(interval = 60 * 60 * 1000): void { // Default: 1 hour
+  public static startPeriodicCleanup(interval = 60 * 60 * 1000): void {
+    // Default: 1 hour
     setInterval(() => {
       void this.cleanOldFiles();
     }, interval);

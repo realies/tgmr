@@ -33,30 +33,29 @@ export const isSupportedPlatform = (url: string): boolean => {
  * @returns string of supported platforms
  */
 export const getSupportedPlatforms = (): string => {
-  const platforms = env.SUPPORTED_DOMAINS
-    .map(domain => {
-      switch (domain) {
-        case 'youtu.be':
-          return null; // Skip alternate YouTube domain
-        case 'youtube.com':
-          return 'YouTube';
-        case 'vimeo.com':
-          return 'Vimeo';
-        case 'soundcloud.com':
-          return 'SoundCloud';
-        case 'mixcloud.com':
-          return 'Mixcloud';
-        case 'instagram.com':
-          return 'Instagram';
-        case 'twitter.com':
-        case 'x.com':
-          return 'Twitter/X';
-        case 'bandcamp.com':
-          return 'Bandcamp';
-        default:
-          return domain.split('.')[0].charAt(0).toUpperCase() + domain.split('.')[0].slice(1);
-      }
-    })
+  const platforms = env.SUPPORTED_DOMAINS.map((domain) => {
+    switch (domain) {
+      case 'youtu.be':
+        return null; // Skip alternate YouTube domain
+      case 'youtube.com':
+        return 'YouTube';
+      case 'vimeo.com':
+        return 'Vimeo';
+      case 'soundcloud.com':
+        return 'SoundCloud';
+      case 'mixcloud.com':
+        return 'Mixcloud';
+      case 'instagram.com':
+        return 'Instagram';
+      case 'twitter.com':
+      case 'x.com':
+        return 'Twitter/X';
+      case 'bandcamp.com':
+        return 'Bandcamp';
+      default:
+        return domain.split('.')[0].charAt(0).toUpperCase() + domain.split('.')[0].slice(1);
+    }
+  })
     .filter((platform): platform is string => platform !== null)
     .join(', ');
 
