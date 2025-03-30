@@ -3,7 +3,7 @@ version: '3.8'
 services:
   tgmr:
     container_name: tgmr
-    build: .
+    image: realies/tgmr:latest
     restart: unless-stopped
     environment:
       - BOT_TOKEN=your_telegram_bot_token_here

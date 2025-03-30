@@ -1,5 +1,10 @@
 # TGMR (Telegram Media Reply)
 
+[![GitHub Last Commit](https://img.shields.io/github/last-commit/realies/tgmr?style=flat-square&logo=git&label=last%20commit)](https://github.com/realies/tgmr/commits/main)
+[![GitHub Workflow Status](https://img.shields.io/github/actions/workflow/status/realies/tgmr/docker-build.yml?style=flat-square&logo=github&label=build)](https://github.com/realies/tgmr/actions)
+[![Docker Pulls](https://img.shields.io/docker/pulls/realies/tgmr?style=flat-square&logo=docker&label=pulls)](https://hub.docker.com/r/realies/tgmr)
+[![Docker Image Size](https://img.shields.io/docker/image-size/realies/tgmr?style=flat-square&logo=docker&label=size)](https://hub.docker.com/r/realies/tgmr)
+
 A Telegram bot that automatically downloads and replies with media content when users share links in messages. Built with TypeScript and powered by yt-dlp and gallery-dl.
 
 ## Features
