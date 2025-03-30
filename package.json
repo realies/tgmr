@@ -25,7 +25,7 @@
     "node": ">=18.0.0"
   },
   "dependencies": {
-    "grammy": "^1.35.0"
+    "grammy": "^1.35.1"
   },
   "devDependencies": {
     "@types/node": "^22.13.10",
