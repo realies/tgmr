@@ -7,6 +7,7 @@ import { exec } from 'child_process';
 import { promisify } from 'util';
 import { logger } from '../utils/logger.js';
 import { withRetry } from '../utils/retry.js';
+import { RateLimiter } from '../utils/rateLimit.js';
 
 const execAsync = promisify(exec);
 const statAsync = promisify(stat);
@@ -108,6 +109,14 @@ export async function handleMessage(ctx: Context): Promise<void> {
     msgId: messageId,
   };
 
+  // Create user identifier string
+  const userInfo = isAnonymousAdmin
+    ? 'Anonymous Admin'
+    : username
+      ? `@${username}`
+      : `user ${userId}`;
+  const requestId = `[${chatId}:${messageId}]`;
+
   /**
    * Normalizes line breaks in text to have at most one empty line between content
    */
@@ -128,13 +137,22 @@ export async function handleMessage(ctx: Context): Promise<void> {
     return;
   }
 
-  // Create user identifier string
-  const userInfo = isAnonymousAdmin
-    ? 'Anonymous Admin'
-    : username
-      ? `@${username}`
-      : `user ${userId}`;
-  const requestId = `[${chatId}:${messageId}]`;
+  // Apply rate limiting to regular users (not anonymous admins)
+  if (userId && !isAnonymousAdmin) {
+    const rateLimiter = RateLimiter.getInstance();
+
+    // Check if user is allowed to make a request
+    if (!rateLimiter.canMakeRequest(userId)) {
+      logger.info(`Rate limit applied for ${userInfo}`, {
+        ...logContext,
+        requestId: `[${chatId}]`,
+      });
+      await ctx.reply('You are sending requests too quickly. Please try again later.', {
+        reply_to_message_id: messageId,
+      });
+      return;
+    }
+  }
 
   try {
     // Extract URLs from message
@@ -145,6 +163,11 @@ export async function handleMessage(ctx: Context): Promise<void> {
 
     const url = urls[0];
     logger.info(`${userInfo} requested: ${url}`, { ...logContext, requestId });
+
+    // Record rate limit usage for non-anonymous users
+    if (userId && !isAnonymousAdmin) {
+      RateLimiter.getInstance().recordRequest(userId);
+    }
 
     const downloader = MediaDownloader.getInstance();
     const actionManager = new ChatActionManager(ctx, chatId);

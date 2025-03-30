@@ -11,6 +11,7 @@ A Telegram bot that automatically downloads and replies with media content when 
 - Works in both private chats and groups
 - Includes detailed media information in captions (format, quality, size)
 - Efficient temporary file management
+- Rate limiting to prevent spam and abuse
 - Docker support for easy deployment
 
 ## Requirements
@@ -24,7 +25,7 @@ A Telegram bot that automatically downloads and replies with media content when 
 
 1. Set your bot token:
    ```bash
-   # Edit docker-compose.yml and replace 'your_telegram_bot_token_here' with your token
+   # Edit docker-compose.yml and replace your Telegram Bot Token in the BOT_TOKEN environment variable
    ```
 
 2. Start the bot:
@@ -94,6 +95,7 @@ Note: Keep your cookie files secure as they contain sensitive authentication dat
 3. The bot will reply with:
    - A voice message for audio-only content
    - A video file for video content
+   - Image files for image content from supported platforms
    - Caption including title and technical details
 
 ### Commands
