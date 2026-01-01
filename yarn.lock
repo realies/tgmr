@@ -77,10 +77,10 @@
     "@eslint/core" "^0.17.0"
     levn "^0.4.1"
 
-"@grammyjs/types@3.22.2":
-  version "3.22.2"
-  resolved "https://registry.yarnpkg.com/@grammyjs/types/-/types-3.22.2.tgz#e59410615a9c70c00e7ae96bc5cd7ed4852059ca"
-  integrity sha512-uu7DX2ezhnBPozL3bXHmwhLvaFsh59E4QyviNH4Cij7EdVekYrs6mCzeXsa2pDk30l3uXo7DBahlZLzTPtpYZg==
+"@grammyjs/types@3.23.0":
+  version "3.23.0"
+  resolved "https://registry.yarnpkg.com/@grammyjs/types/-/types-3.23.0.tgz#f0ed98d2e35dbedf170b3aa9b5a2b7cd46238bc1"
+  integrity sha512-D3jQ4UWERPsyR3op/YFudMMIPNTU47vy7L51uO9/73tMELmjO/+LX5N36/Y0CG5IQfIsz43MxiHI5rgsK0/k+g==
 
 "@humanfs/core@^0.19.1":
   version "0.19.1"
@@ -636,12 +636,12 @@ globals@^14.0.0:
   resolved "https://registry.yarnpkg.com/globals/-/globals-14.0.0.tgz#898d7413c29babcf6bafe56fcadded858ada724e"
   integrity sha512-oahGvuMGQlPw/ivIYBjVSrWAfWLBeku5tpPE2fOPLi+WHffIWbuh2tCjhyQhTBPMf5E9jDEH4FOmTYgYwbKwtQ==
 
-grammy@^1.38.4:
-  version "1.38.4"
-  resolved "https://registry.yarnpkg.com/grammy/-/grammy-1.38.4.tgz#f4703198edc21dd4feec2751508c966691ae8cb6"
-  integrity sha512-z07Kin3HgRwMdy40KUs+c9fmNBvGlSxGwcqY8NAH0a8KULGFYEMQaFAo3ge0V5tvmgr02Jgubkf54KjHLAMCbw==
+grammy@^1.39.2:
+  version "1.39.2"
+  resolved "https://registry.yarnpkg.com/grammy/-/grammy-1.39.2.tgz#68d817a49a471199b30627ad108f62e13b43b6cf"
+  integrity sha512-7mLdNsNI2HBN1Gjombx7p3/Cjfgw/kErR/Qv3pDRw2qO/dYEdK8B9G9rpdZayNID+3qFQVTXNqxcGpG38mC2TQ==
   dependencies:
-    "@grammyjs/types" "3.22.2"
+    "@grammyjs/types" "3.23.0"
     abort-controller "^3.0.0"
     debug "^4.4.3"
     node-fetch "^2.7.0"
