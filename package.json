@@ -28,7 +28,7 @@
     "grammy": "^1.38.4"
   },
   "devDependencies": {
-    "@types/node": "^24.10.2",
+    "@types/node": "^25.0.7",
     "@typescript-eslint/eslint-plugin": "^8.52.0",
     "@typescript-eslint/parser": "^8.53.0",
     "eslint": "^9.39.2",
