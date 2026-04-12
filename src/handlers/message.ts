@@ -1,4 +1,5 @@
 import { Context, InputFile } from 'grammy';
+import { existsSync } from 'fs';
 import { isSupportedUrl } from '../utils/url.js';
 import { MediaDownloader } from '../services/downloader.js';
 import type { MediaMetadata } from '../services/downloader.js';
@@ -12,32 +13,19 @@ import { buildSingleCaption, buildGroupCaption } from '../utils/caption.js';
 import { Semaphore } from '../utils/concurrency.js';
 import { ChatActionManager } from '../utils/chatAction.js';
 import type { ChatAction } from '../utils/chatAction.js';
+import { normalizeUrl } from '../utils/urlNormalize.js';
 
 const BYTES_PER_MB = 1024 * 1024;
 const MAX_MEDIA_GROUP_SIZE = 10;
 const MAX_CONCURRENT_DOWNLOADS = 5;
 const MAX_CONCURRENT_PROBES = 10;
-const MEDIA_INFO_CACHE_TTL = 5 * 60 * 1000;
+const DOWNLOAD_CACHE_TTL = 30 * 60 * 1000; // 30 minutes
 const downloadSemaphore = new Semaphore(MAX_CONCURRENT_DOWNLOADS);
 const probeSemaphore = new Semaphore(MAX_CONCURRENT_PROBES);
 
 const IMAGE_CODECS = new Set(['mjpeg', 'png', 'gif', 'webp', 'bmp', 'tiff', 'jpeg2000']);
 
-// Simple TTL cache for media info to avoid re-fetching the same URL
-const mediaInfoCache = new Map<string, { data: MediaMetadata; expiry: number }>();
-
-function getCachedMediaInfo(url: string): MediaMetadata | null {
-  const cached = mediaInfoCache.get(url);
-  if (!cached || Date.now() > cached.expiry) {
-    mediaInfoCache.delete(url);
-    return null;
-  }
-  return cached.data;
-}
-
-function cacheMediaInfo(url: string, data: MediaMetadata): void {
-  mediaInfoCache.set(url, { data, expiry: Date.now() + MEDIA_INFO_CACHE_TTL });
-}
+// --- Download Cache ---
 
 interface MediaItem {
   path: string;
@@ -47,6 +35,55 @@ interface MediaItem {
   videoHeight?: number;
   streamInfo: string;
   fileSizeMB: string;
+}
+
+interface CachedDownload {
+  mediaInfo: MediaMetadata;
+  mediaItems: MediaItem[];
+  expiry: number;
+}
+
+const downloadCache = new Map<string, CachedDownload>();
+
+// Evict expired entries and clean up their files
+const cacheEvictTimer = setInterval(
+  () => {
+    const now = Date.now();
+    const downloader = MediaDownloader.getInstance();
+    for (const [key, entry] of downloadCache) {
+      if (now > entry.expiry) {
+        downloadCache.delete(key);
+        for (const item of entry.mediaItems) {
+          downloader.cleanup(item.path).catch(() => {});
+        }
+      }
+    }
+  },
+  5 * 60 * 1000,
+);
+cacheEvictTimer.unref();
+
+function getCachedDownload(url: string): CachedDownload | null {
+  const key = normalizeUrl(url);
+  const cached = downloadCache.get(key);
+  if (!cached || Date.now() > cached.expiry) {
+    if (cached) downloadCache.delete(key);
+    return null;
+  }
+  // Verify files still exist on disk
+  if (cached.mediaItems.every((item) => existsSync(item.path))) {
+    return cached;
+  }
+  downloadCache.delete(key);
+  return null;
+}
+
+function cacheDownload(url: string, mediaInfo: MediaMetadata, mediaItems: MediaItem[]): void {
+  downloadCache.set(normalizeUrl(url), {
+    mediaInfo,
+    mediaItems,
+    expiry: Date.now() + DOWNLOAD_CACHE_TTL,
+  });
 }
 
 // --- Main Handler ---
@@ -73,7 +110,12 @@ export async function handleMessage(ctx: Context): Promise<void> {
   }
 
   try {
-    const urls = messageText.split(/\s+/).filter(isSupportedUrl);
+    // Detect +info flag at end of message
+    const trimmed = messageText.trim();
+    const showInfo = trimmed.endsWith('+info');
+    const textForParsing = showInfo ? trimmed.slice(0, -5).trim() : trimmed;
+
+    const urls = textForParsing.split(/\s+/).filter(isSupportedUrl);
     if (urls.length === 0) return;
 
     const rateLimitKey = userId && !isAnonymousAdmin ? userId : chatId;
@@ -86,10 +128,10 @@ export async function handleMessage(ctx: Context): Promise<void> {
     }
 
     const url = urls[0];
-    logger.info(`${userInfo} → ${url}`, logCtx);
+    logger.info(`${userInfo} → ${url}${showInfo ? ' +info' : ''}`, logCtx);
 
     await downloadSemaphore.run(() =>
-      processMediaRequest(ctx, url, chatId, messageId, logCtx, userInfo),
+      processMediaRequest(ctx, url, chatId, messageId, logCtx, showInfo),
     );
   } catch (error) {
     logger.error('Failed to process message', { ...logCtx, error });
@@ -105,12 +147,25 @@ async function processMediaRequest(
   chatId: number,
   messageId: number,
   logCtx: Record<string, unknown>,
-  userInfo: string,
+  showInfo: boolean,
 ): Promise<void> {
+  // Check download cache first
+  const cached = getCachedDownload(url);
+  if (cached) {
+    logger.info('Cache hit — re-sending', logCtx);
+    if (cached.mediaItems.length > 1) {
+      await sendMediaGroup(ctx, cached.mediaItems, cached.mediaInfo, url, messageId, showInfo);
+    } else {
+      await sendSingleMedia(ctx, cached.mediaItems[0], cached.mediaInfo, url, messageId, showInfo);
+    }
+    return;
+  }
+
   const downloader = MediaDownloader.getInstance();
   const actionManager = new ChatActionManager(ctx, chatId);
   let filePaths: string[] = [];
   let mediaItems: MediaItem[] = [];
+  let cacheResult = false;
 
   try {
     const mediaInfo = await fetchMediaInfo(downloader, url, actionManager, logCtx);
@@ -136,12 +191,15 @@ async function processMediaRequest(
     mediaItems = await buildMediaItems(filePaths, logCtx);
 
     if (mediaItems.length > 1) {
-      await sendMediaGroup(ctx, mediaItems, result.mediaInfo, url, messageId);
+      await sendMediaGroup(ctx, mediaItems, result.mediaInfo, url, messageId, showInfo);
     } else {
-      await sendSingleMedia(ctx, mediaItems[0], result.mediaInfo, url, messageId);
+      await sendSingleMedia(ctx, mediaItems[0], result.mediaInfo, url, messageId, showInfo);
     }
 
-    logger.debug(`Done for ${userInfo}`, logCtx);
+    // Cache on success — files stay on disk until cache expires
+    cacheDownload(url, result.mediaInfo, mediaItems);
+    cacheResult = true;
+    logger.debug('Cached download result', logCtx);
   } catch (error) {
     logger.error('Failed to process media request', { ...logCtx, error });
     await ctx
@@ -149,7 +207,10 @@ async function processMediaRequest(
       .catch(() => {});
   } finally {
     actionManager.stop();
-    await cleanupFiles(filePaths, mediaItems, downloader, logCtx);
+    // Only clean up if NOT cached (cached files expire via eviction timer)
+    if (!cacheResult) {
+      await cleanupFiles(filePaths, mediaItems, downloader, logCtx);
+    }
   }
 }
 
@@ -159,23 +220,14 @@ async function fetchMediaInfo(
   actionManager: ChatActionManager,
   logCtx: Record<string, unknown>,
 ): Promise<MediaMetadata | null> {
-  // Check cache first
-  const cached = getCachedMediaInfo(url);
-  if (cached) {
-    logger.info(`Media info cache hit`, logCtx);
-    return cached;
-  }
-
   await actionManager.start('typing');
   logger.info('Fetching media info...', logCtx);
   try {
-    const info = await withRetry(() => downloader.getMediaInfo(url), {
+    return await withRetry(() => downloader.getMediaInfo(url), {
       maxAttempts: 5,
       initialDelay: 2000,
       maxDelay: 15000,
     });
-    cacheMediaInfo(url, info);
-    return info;
   } catch (error) {
     logger.warn('Failed to get media info', { ...logCtx, error });
     return null;
@@ -269,13 +321,15 @@ async function sendMediaGroup(
   mediaInfo: { title: string },
   url: string,
   messageId: number,
+  showInfo: boolean,
 ): Promise<void> {
   for (let i = 0; i < mediaItems.length; i += MAX_MEDIA_GROUP_SIZE) {
     const chunk = mediaItems.slice(i, i + MAX_MEDIA_GROUP_SIZE);
-    const caption = buildGroupCaption(mediaInfo.title, url, chunk, i === 0);
+    const caption = showInfo ? buildGroupCaption(mediaInfo.title, url, chunk, i === 0) : undefined;
 
     const mediaGroup = chunk.map((item, index) => {
-      const captionOpts = index === 0 ? { caption, parse_mode: 'MarkdownV2' as const } : {};
+      const captionOpts =
+        index === 0 && caption ? { caption, parse_mode: 'MarkdownV2' as const } : {};
       if (item.isVideo) {
         return {
           type: 'video' as const,
@@ -303,9 +357,13 @@ async function sendSingleMedia(
   mediaInfo: { title: string; format: string },
   url: string,
   messageId: number,
+  showInfo: boolean,
 ): Promise<void> {
-  const caption = buildSingleCaption(mediaInfo.title, url, item);
-  const baseOpts = { caption, reply_to_message_id: messageId, parse_mode: 'MarkdownV2' as const };
+  const caption = showInfo ? buildSingleCaption(mediaInfo.title, url, item) : undefined;
+  const baseOpts = {
+    reply_to_message_id: messageId,
+    ...(caption && { caption, parse_mode: 'MarkdownV2' as const }),
+  };
 
   if (mediaInfo.format === 'audio') {
     await ctx.replyWithVoice(new InputFile(item.path), baseOpts);
@@ -334,7 +392,6 @@ async function cleanupFiles(
   for (const p of filePaths) {
     pathsToClean.add(p);
   }
-
   for (const item of mediaItems) {
     pathsToClean.add(item.path);
   }
