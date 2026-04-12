@@ -1,4 +1,4 @@
-FROM node:22-slim AS builder
+FROM node:slim AS builder
 
 WORKDIR /app
 
@@ -14,7 +14,7 @@ COPY . .
 # Build TypeScript
 RUN yarn build
 
-FROM node:22-slim AS runner
+FROM node:slim AS runner
 
 WORKDIR /app
 

@@ -22,7 +22,7 @@ jobs:
         if: github.event_name == 'schedule'
         uses: lucacome/docker-image-update-checker@v2.0.0
         with:
-          base-image: "node:22-slim"
+          base-image: "node:slim"
           image: "realies/tgmr:latest"
         continue-on-error: true
 
