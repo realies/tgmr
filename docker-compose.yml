@@ -1,7 +1,7 @@
 services:
   tgmr:
     container_name: tgmr
-    image: realies/tgmr:latest
+    build: .
     restart: unless-stopped
     security_opt:
       - no-new-privileges:true
@@ -20,4 +20,4 @@ services:
     volumes:
       - ./cookies:/cookies
     tmpfs:
-      - /tmp/tgmr:noexec,nosuid,size=1G
+      - /tmp/tgmr:noexec,nosuid,size=1G,uid=1000,gid=1000

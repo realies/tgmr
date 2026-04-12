@@ -15,6 +15,7 @@ export class RateLimiter {
 
   private constructor() {
     this.evictTimer = setInterval(() => this.evictStale(), 10 * 60 * 1000);
+    this.evictTimer.unref();
   }
 
   public static getInstance(): RateLimiter {

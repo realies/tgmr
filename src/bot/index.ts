@@ -9,6 +9,15 @@ import { getSupportedPlatforms } from '../utils/url.js';
 const PERMISSION_CACHE_TTL = 5 * 60 * 1000;
 const permissionCache = new Map<number, { canSend: boolean; expiry: number }>();
 
+// Periodically prune expired entries so the cache doesn't grow unbounded
+const pruneTimer = setInterval(() => {
+  const now = Date.now();
+  for (const [chatId, entry] of permissionCache) {
+    if (now > entry.expiry) permissionCache.delete(chatId);
+  }
+}, PERMISSION_CACHE_TTL);
+pruneTimer.unref();
+
 function getCachedPermission(chatId: number): boolean | null {
   const cached = permissionCache.get(chatId);
   if (!cached || Date.now() > cached.expiry) {

@@ -37,7 +37,7 @@ export function buildGroupCaption(
       const existing = imageFormats.get(key) || { count: 0, codec, dims };
       imageFormats.set(key, { ...existing, count: existing.count + 1 });
     }
-    chunkTotalSize += parseFloat(item.fileSizeMB);
+    chunkTotalSize += parseFloat(item.fileSizeMB) || 0;
   }
 
   const formatParts: string[] = [];

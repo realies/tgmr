@@ -20,6 +20,7 @@ export interface FFprobeData {
 }
 
 export async function probeMediaFile(path: string): Promise<FFprobeData> {
+  assertSafePath(path, env.TMP_DIR);
   const { stdout } = await safeExec('ffprobe', [
     '-v',
     'quiet',
@@ -37,6 +38,7 @@ export async function probeMediaFile(path: string): Promise<FFprobeData> {
 }
 
 export async function generateThumbnail(videoPath: string): Promise<Buffer | null> {
+  assertSafePath(videoPath, env.TMP_DIR);
   const thumbnailPath = `${videoPath}.thumb.jpg`;
   assertSafePath(thumbnailPath, env.TMP_DIR);
   try {

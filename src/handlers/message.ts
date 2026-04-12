@@ -16,7 +16,9 @@ import type { ChatAction } from '../utils/chatAction.js';
 const BYTES_PER_MB = 1024 * 1024;
 const MAX_MEDIA_GROUP_SIZE = 10;
 const MAX_CONCURRENT_DOWNLOADS = 5;
+const MAX_CONCURRENT_PROBES = 10;
 const downloadSemaphore = new Semaphore(MAX_CONCURRENT_DOWNLOADS);
+const probeSemaphore = new Semaphore(MAX_CONCURRENT_PROBES);
 
 const IMAGE_CODECS = new Set(['mjpeg', 'png', 'gif', 'webp', 'bmp', 'tiff', 'jpeg2000']);
 
@@ -218,46 +220,56 @@ async function buildMediaItems(
   logContext: Record<string, unknown>,
   requestId: string,
 ): Promise<MediaItem[]> {
-  return Promise.all(
-    filePaths.map(async (path) => {
-      assertSafePath(path, env.TMP_DIR);
-      const probe = await probeMediaFile(path);
+  // Use allSettled + semaphore so all probes complete before cleanup,
+  // and concurrent ffprobe/ffmpeg processes are bounded
+  const results = await Promise.allSettled(
+    filePaths.map((path) =>
+      probeSemaphore.run(async () => {
+        assertSafePath(path, env.TMP_DIR);
+        const probe = await probeMediaFile(path);
 
-      const isVideo = probe.streams.some(
-        (s) => s.codec_type === 'video' && !IMAGE_CODECS.has(s.codec_name),
-      );
-
-      let thumbnail: Buffer | null = null;
-      if (isVideo) {
-        logger.debug('Creating thumbnail for video', { ...logContext, requestId, path });
-        thumbnail = await generateThumbnail(path);
-        if (thumbnail) {
-          logger.debug('Thumbnail created', { ...logContext, requestId, size: thumbnail.length });
-        }
-      }
-
-      const { info, width, height } = extractStreamInfo(probe.streams, isVideo, probe.format);
-      const fileSize = probe.format?.size ? parseInt(probe.format.size, 10) : 0;
-      const fileSizeMB =
-        Number.isFinite(fileSize) && fileSize > 0 ? (fileSize / BYTES_PER_MB).toFixed(1) : '0';
-
-      if (Number.isFinite(fileSize) && fileSize > env.MAX_FILE_SIZE) {
-        throw new Error(
-          `Media file (${fileSizeMB}MB) exceeds size limit (${env.MAX_FILE_SIZE / BYTES_PER_MB}MB)`,
+        const isVideo = probe.streams.some(
+          (s) => s.codec_type === 'video' && !IMAGE_CODECS.has(s.codec_name),
         );
-      }
 
-      return {
-        path,
-        isVideo,
-        thumbnail: thumbnail ?? undefined,
-        videoWidth: width,
-        videoHeight: height,
-        streamInfo: info,
-        fileSizeMB,
-      };
-    }),
+        let thumbnail: Buffer | null = null;
+        if (isVideo) {
+          logger.debug('Creating thumbnail for video', { ...logContext, requestId, path });
+          thumbnail = await generateThumbnail(path);
+          if (thumbnail) {
+            logger.debug('Thumbnail created', { ...logContext, requestId, size: thumbnail.length });
+          }
+        }
+
+        const { info, width, height } = extractStreamInfo(probe.streams, isVideo, probe.format);
+        const fileSize = probe.format?.size ? parseInt(probe.format.size, 10) : 0;
+        const fileSizeMB =
+          Number.isFinite(fileSize) && fileSize > 0 ? (fileSize / BYTES_PER_MB).toFixed(1) : '0';
+
+        if (Number.isFinite(fileSize) && fileSize > env.MAX_FILE_SIZE) {
+          throw new Error(
+            `Media file (${fileSizeMB}MB) exceeds size limit (${env.MAX_FILE_SIZE / BYTES_PER_MB}MB)`,
+          );
+        }
+
+        return {
+          path,
+          isVideo,
+          thumbnail: thumbnail ?? undefined,
+          videoWidth: width,
+          videoHeight: height,
+          streamInfo: info,
+          fileSizeMB,
+        };
+      }),
+    ),
   );
+
+  // If any probe failed, throw the first error (after all have settled)
+  const rejected = results.find((r): r is PromiseRejectedResult => r.status === 'rejected');
+  if (rejected) throw rejected.reason;
+
+  return results.map((r) => (r as PromiseFulfilledResult<MediaItem>).value);
 }
 
 // --- Telegram Send ---
