@@ -3,6 +3,8 @@ import { logger } from './utils/logger.js';
 import { Cleanup } from './utils/cleanup.js';
 import { RateLimiter } from './utils/rateLimit.js';
 
+const SHUTDOWN_TIMEOUT_MS = 10_000;
+
 async function main(): Promise<void> {
   try {
     await Cleanup.init();
@@ -22,16 +24,26 @@ async function main(): Promise<void> {
       throw error;
     }
 
-    // Graceful shutdown
-    const shutdown = (): void => {
+    const shutdown = async (): Promise<void> => {
       logger.info('Shutting down...');
-      bot.stop();
+      // Hard-exit fallback if graceful shutdown hangs
+      const hardExit = setTimeout(() => {
+        logger.warn('Shutdown timed out, forcing exit');
+        process.exit(1);
+      }, SHUTDOWN_TIMEOUT_MS);
+      hardExit.unref();
+
+      try {
+        await bot.stop();
+      } catch (error) {
+        logger.error('Error stopping bot', { error });
+      }
       Cleanup.stop();
       RateLimiter.getInstance().stop();
-      process.exit(0);
+      process.exitCode = 0;
     };
-    process.on('SIGTERM', shutdown);
-    process.on('SIGINT', shutdown);
+    process.on('SIGTERM', () => void shutdown());
+    process.on('SIGINT', () => void shutdown());
 
     await bot.start({
       onStart: (botInfo) => {

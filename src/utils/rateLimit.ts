@@ -37,23 +37,37 @@ export class RateLimiter {
       return true;
     }
 
+    // In cooldown — reject
     if (entry.cooldownUntil > now) {
       const secondsLeft = Math.ceil((entry.cooldownUntil - now) / 1000);
       logger.info(`User ${userId} is in cooldown for ${secondsLeft} more seconds`);
       return false;
     }
 
+    // Cooldown just expired — reset bucket and allow
+    if (entry.cooldownUntil > 0) {
+      this.limits.set(userId, { count: 1, lastReset: now, cooldownUntil: 0 });
+      return true;
+    }
+
+    // Window expired — reset and allow
     if (now - entry.lastReset > this.resetInterval) {
       this.limits.set(userId, { count: 1, lastReset: now, cooldownUntil: 0 });
       return true;
     }
 
+    // At limit — enter cooldown, reset count for next window
     if (entry.count >= env.RATE_LIMIT) {
-      this.limits.set(userId, { ...entry, cooldownUntil: now + env.COOLDOWN * 1000 });
+      this.limits.set(userId, {
+        count: 0,
+        lastReset: now,
+        cooldownUntil: now + env.COOLDOWN * 1000,
+      });
       logger.info(`User ${userId} has exceeded rate limit, cooldown for ${env.COOLDOWN}s`);
       return false;
     }
 
+    // Allow and increment
     this.limits.set(userId, { ...entry, count: entry.count + 1 });
     logger.debug(`User ${userId} has made ${entry.count + 1}/${env.RATE_LIMIT} requests`);
     return true;

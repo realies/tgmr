@@ -6,11 +6,7 @@ import { logger } from '../utils/logger.js';
 import { getSupportedPlatforms } from '../utils/url.js';
 
 export async function createBot(): Promise<Bot> {
-  try {
-    await mkdir(env.TMP_DIR, { recursive: true });
-  } catch {
-    // Ignore if directory already exists
-  }
+  await mkdir(env.TMP_DIR, { recursive: true });
 
   const bot = new Bot(env.BOT_TOKEN);
 

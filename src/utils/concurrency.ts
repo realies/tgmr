@@ -5,7 +5,11 @@ export class Semaphore {
   private readonly queue: (() => void)[] = [];
   private active = 0;
 
-  constructor(private readonly maxConcurrent: number) {}
+  constructor(private readonly maxConcurrent: number) {
+    if (!Number.isFinite(maxConcurrent) || maxConcurrent <= 0) {
+      throw new RangeError(`maxConcurrent must be a positive integer, got: ${maxConcurrent}`);
+    }
+  }
 
   private acquire(): Promise<void> {
     if (this.active < this.maxConcurrent) {

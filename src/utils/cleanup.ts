@@ -2,6 +2,7 @@ import { rm, readdir, stat } from 'fs/promises';
 import { join } from 'path';
 import { logger } from './logger.js';
 import { env } from '../config/env.js';
+import { assertSafePath } from './pathSafety.js';
 
 export class Cleanup {
   private static readonly MAX_AGE = 24 * 60 * 60 * 1000;
@@ -11,7 +12,10 @@ export class Cleanup {
     try {
       const files = await readdir(env.TMP_DIR);
       await Promise.all(
-        files.map((file) => rm(join(env.TMP_DIR, file), { recursive: true, force: true })),
+        files.map((file) => {
+          const filePath = assertSafePath(join(env.TMP_DIR, file), env.TMP_DIR);
+          return rm(filePath, { recursive: true, force: true });
+        }),
       );
       logger.info(`Initialized temp directory: ${env.TMP_DIR}`);
     } catch (error) {
@@ -28,7 +32,7 @@ export class Cleanup {
 
       await Promise.all(
         files.map(async (file) => {
-          const filePath = join(env.TMP_DIR, file);
+          const filePath = assertSafePath(join(env.TMP_DIR, file), env.TMP_DIR);
           const stats = await stat(filePath);
           if (now - stats.mtimeMs > this.MAX_AGE) {
             await rm(filePath, { recursive: true, force: true });
@@ -44,6 +48,7 @@ export class Cleanup {
   }
 
   public static startPeriodicCleanup(interval = 60 * 60 * 1000): void {
+    if (this.cleanupTimer) return;
     this.cleanupTimer = setInterval(() => {
       void this.cleanOldFiles();
     }, interval);

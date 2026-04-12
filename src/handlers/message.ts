@@ -1,21 +1,26 @@
 import { Context, InputFile } from 'grammy';
-import { readFile, stat } from 'fs/promises';
+import { readFile, stat, unlink } from 'fs/promises';
 import { isValidUrl, isSupportedPlatform } from '../utils/url.js';
 import { MediaDownloader } from '../services/downloader.js';
+import type { MediaMetadata } from '../services/downloader.js';
 import { env } from '../config/env.js';
 import { logger } from '../utils/logger.js';
 import { withRetry } from '../utils/retry.js';
 import { RateLimiter } from '../utils/rateLimit.js';
 import { safeExec } from '../utils/exec.js';
 import { assertSafePath } from '../utils/pathSafety.js';
-import { escapeMarkdownV2, normalizeLineBreaks } from '../utils/markdown.js';
+import { escapeMarkdownV2, escapeMarkdownV2Url, normalizeLineBreaks } from '../utils/markdown.js';
 import { Semaphore } from '../utils/concurrency.js';
 
 const THUMBNAIL_MAX_BYTES = 200 * 1024;
 const BYTES_PER_MB = 1024 * 1024;
 const MAX_MEDIA_GROUP_SIZE = 10;
 const MAX_CONCURRENT_DOWNLOADS = 5;
+const MAX_CONCURRENT_PROBES = 10;
 const downloadSemaphore = new Semaphore(MAX_CONCURRENT_DOWNLOADS);
+const probeSemaphore = new Semaphore(MAX_CONCURRENT_PROBES);
+
+const IMAGE_CODECS = new Set(['mjpeg', 'png', 'gif', 'webp', 'bmp', 'tiff', 'jpeg2000']);
 
 type ChatAction = 'typing' | 'upload_photo' | 'upload_video' | 'upload_voice' | 'upload_document';
 
@@ -48,6 +53,7 @@ interface MediaItem {
 class ChatActionManager {
   private timer: NodeJS.Timeout | null = null;
   private inFlight = false;
+  private stopped = false;
 
   constructor(
     private ctx: Context,
@@ -56,6 +62,7 @@ class ChatActionManager {
 
   async start(action: ChatAction): Promise<void> {
     this.stop();
+    this.stopped = false;
     try {
       await this.sendAction(action);
     } catch (error) {
@@ -66,8 +73,9 @@ class ChatActionManager {
   }
 
   private scheduleNext(action: ChatAction): void {
+    if (this.stopped) return;
     this.timer = setTimeout(async () => {
-      if (this.inFlight) return;
+      if (this.inFlight || this.stopped) return;
       this.inFlight = true;
       try {
         await this.sendAction(action);
@@ -77,7 +85,7 @@ class ChatActionManager {
         }
       } finally {
         this.inFlight = false;
-        if (this.timer !== null) this.scheduleNext(action);
+        if (!this.stopped) this.scheduleNext(action);
       }
     }, 1000);
   }
@@ -91,6 +99,7 @@ class ChatActionManager {
   }
 
   stop(): void {
+    this.stopped = true;
     if (this.timer) {
       clearTimeout(this.timer);
       this.timer = null;
@@ -119,6 +128,7 @@ async function probeMediaFile(path: string): Promise<FFprobeData> {
 
 async function generateThumbnail(videoPath: string): Promise<Buffer | null> {
   const thumbnailPath = `${videoPath}.thumb.jpg`;
+  assertSafePath(thumbnailPath, env.TMP_DIR);
   try {
     await safeExec('ffmpeg', [
       '-y',
@@ -133,7 +143,10 @@ async function generateThumbnail(videoPath: string): Promise<Buffer | null> {
       thumbnailPath,
     ]);
     const stats = await stat(thumbnailPath);
-    if (stats.size === 0 || stats.size > THUMBNAIL_MAX_BYTES) return null;
+    if (stats.size === 0 || stats.size > THUMBNAIL_MAX_BYTES) {
+      await unlink(thumbnailPath).catch(() => {});
+      return null;
+    }
     return await readFile(thumbnailPath);
   } catch {
     return null;
@@ -152,22 +165,22 @@ function extractStreamInfo(
   const parts = streams
     .map((stream) => {
       if (stream.codec_type === 'video') {
-        if (!isVideo) return `${stream.codec_name} ${stream.width}x${stream.height}`;
+        if (!isVideo) return `${stream.codec_name} ${stream.width ?? '?'}x${stream.height ?? '?'}`;
         const bitrate = stream.bit_rate
-          ? `${Math.round(parseInt(stream.bit_rate) / 1000)}kbps`
+          ? `${Math.round(parseInt(stream.bit_rate, 10) / 1000)}kbps`
           : format?.bit_rate
-            ? `${Math.round(parseInt(format.bit_rate) / 1000)}kbps`
+            ? `${Math.round(parseInt(format.bit_rate, 10) / 1000)}kbps`
             : '';
-        return `${stream.codec_name} ${stream.width}x${stream.height}${bitrate ? ` ${bitrate}` : ''}`;
+        return `${stream.codec_name} ${stream.width ?? '?'}x${stream.height ?? '?'}${bitrate ? ` ${bitrate}` : ''}`;
       }
       if (stream.codec_type === 'audio') {
         const bitrate = stream.bit_rate
-          ? `${Math.round(parseInt(stream.bit_rate) / 1000)}kbps`
+          ? `${Math.round(parseInt(stream.bit_rate, 10) / 1000)}kbps`
           : format?.bit_rate
-            ? `${Math.round(parseInt(format.bit_rate) / 1000)}kbps`
+            ? `${Math.round(parseInt(format.bit_rate, 10) / 1000)}kbps`
             : '';
         const sampleRate = stream.sample_rate
-          ? `${Math.round(parseInt(stream.sample_rate) / 1000)}kHz`
+          ? `${Math.round(parseInt(stream.sample_rate, 10) / 1000)}kHz`
           : '';
         return `${stream.codec_name}${bitrate ? ` ${bitrate}` : ''}${sampleRate ? ` ${sampleRate}` : ''}`;
       }
@@ -183,7 +196,7 @@ function extractStreamInfo(
 
 function buildSingleCaption(title: string, url: string, item: MediaItem): string {
   const escapedTitle = escapeMarkdownV2(normalizeLineBreaks(title));
-  const escapedUrl = escapeMarkdownV2(url);
+  const escapedUrl = escapeMarkdownV2Url(url);
   const escapedInfo = escapeMarkdownV2(item.streamInfo);
   const escapedSize = escapeMarkdownV2(item.fileSizeMB);
   return `[${escapedTitle}](${escapedUrl})\n\`${escapedInfo}, ${escapedSize}MB\``;
@@ -195,19 +208,22 @@ function buildGroupCaption(
   chunk: MediaItem[],
   isFirstChunk: boolean,
 ): string {
-  const imageFormats = new Map<string, { count: number; dimensions: string }>();
-  const videoFormats = new Map<string, { count: number; dimensions: string; codec: string }>();
+  const imageFormats = new Map<string, { count: number; codec: string; dims: string }>();
+  const videoFormats = new Map<string, { count: number; codec: string; dims: string }>();
   let chunkTotalSize = 0;
 
   for (const item of chunk) {
+    const parts = item.streamInfo.split(' ');
+    const codec = parts[0] || 'unknown';
+    const dims = parts[1] || 'unknown';
+    const key = `${codec}-${dims}`;
+
     if (item.isVideo) {
-      const [codec, dimensions] = item.streamInfo.split(' ');
-      const existing = videoFormats.get(dimensions) || { count: 0, dimensions, codec };
-      videoFormats.set(dimensions, { ...existing, count: existing.count + 1 });
+      const existing = videoFormats.get(key) || { count: 0, codec, dims };
+      videoFormats.set(key, { ...existing, count: existing.count + 1 });
     } else {
-      const dimensions = item.streamInfo;
-      const existing = imageFormats.get(dimensions) || { count: 0, dimensions };
-      imageFormats.set(dimensions, { ...existing, count: existing.count + 1 });
+      const existing = imageFormats.get(key) || { count: 0, codec, dims };
+      imageFormats.set(key, { ...existing, count: existing.count + 1 });
     }
     chunkTotalSize += parseFloat(item.fileSizeMB);
   }
@@ -215,19 +231,13 @@ function buildGroupCaption(
   const formatParts: string[] = [];
   if (imageFormats.size > 0) {
     const summary = Array.from(imageFormats.values())
-      .map((info) => {
-        const [codec, dims] = info.dimensions.split(' ');
-        return `${info.count} ${codec} image${info.count > 1 ? 's' : ''} at ${dims}`;
-      })
+      .map((i) => `${i.count} ${i.codec} image${i.count > 1 ? 's' : ''} at ${i.dims}`)
       .join(', ');
     formatParts.push(summary);
   }
   if (videoFormats.size > 0) {
     const summary = Array.from(videoFormats.values())
-      .map(
-        (info) =>
-          `${info.count} ${info.codec} video${info.count > 1 ? 's' : ''} at ${info.dimensions}`,
-      )
+      .map((i) => `${i.count} ${i.codec} video${i.count > 1 ? 's' : ''} at ${i.dims}`)
       .join(', ');
     formatParts.push(summary);
   }
@@ -238,10 +248,44 @@ function buildGroupCaption(
 
   if (isFirstChunk) {
     const escapedTitle = escapeMarkdownV2(normalizeLineBreaks(title));
-    const escapedUrl = escapeMarkdownV2(url);
+    const escapedUrl = escapeMarkdownV2Url(url);
     return `[${escapedTitle}](${escapedUrl})\n${sizeLabel}`;
   }
   return sizeLabel;
+}
+
+// --- Cleanup Helper ---
+
+async function cleanupFiles(
+  filePaths: string[],
+  mediaItems: MediaItem[],
+  downloader: MediaDownloader,
+  logContext: Record<string, unknown>,
+  requestId: string,
+): Promise<void> {
+  const pathsToClean = new Set<string>();
+
+  // Add raw download paths (covers case where buildMediaItems fails)
+  for (const p of filePaths) {
+    pathsToClean.add(p);
+    pathsToClean.add(`${p}.thumb.jpg`);
+  }
+
+  // Add media item paths (may include thumbnails)
+  for (const item of mediaItems) {
+    pathsToClean.add(item.path);
+    if (item.isVideo) pathsToClean.add(`${item.path}.thumb.jpg`);
+  }
+
+  await Promise.all(
+    Array.from(pathsToClean).map((file) =>
+      downloader
+        .cleanup(file)
+        .catch((error) =>
+          logger.warn('Failed to cleanup file', { ...logContext, requestId, file, error }),
+        ),
+    ),
+  );
 }
 
 // --- Main Handler ---
@@ -268,31 +312,33 @@ export async function handleMessage(ctx: Context): Promise<void> {
       : `user ${userId}`;
   const requestId = `[${chatId}:${messageId}]`;
 
-  if (!messageText || !chatId) {
-    logger.warn('Skipping message due to missing text or chatId', logContext);
+  if (!messageText || !chatId || !messageId) {
+    logger.warn('Skipping message due to missing text, chatId, or messageId', logContext);
     return;
   }
 
-  if (userId && !isAnonymousAdmin) {
-    if (!RateLimiter.getInstance().tryConsume(userId)) {
-      logger.info(`Rate limit applied for ${userInfo}`, { ...logContext, requestId });
-      await ctx.reply('You are sending requests too quickly. Please try again later.', {
-        reply_to_message_id: messageId,
-      });
-      return;
-    }
-  }
-
   try {
+    // Extract URLs first — only consume rate limit if there's a supported URL
     const words = messageText.split(/\s+/);
     const urls = words.filter((word) => isValidUrl(word) && isSupportedPlatform(word));
     if (urls.length === 0) return;
+
+    // Rate limit check AFTER URL extraction (non-URL messages don't count)
+    if (userId && !isAnonymousAdmin) {
+      if (!RateLimiter.getInstance().tryConsume(userId)) {
+        logger.info(`Rate limit applied for ${userInfo}`, { ...logContext, requestId });
+        await ctx.reply('You are sending requests too quickly. Please try again later.', {
+          reply_to_message_id: messageId,
+        });
+        return;
+      }
+    }
 
     const url = urls[0];
     logger.info(`${userInfo} requested: ${url}`, { ...logContext, requestId });
 
     await downloadSemaphore.run(() =>
-      processMediaRequest(ctx, url, chatId, messageId!, logContext, requestId, userInfo),
+      processMediaRequest(ctx, url, chatId, messageId, logContext, requestId, userInfo),
     );
   } catch (error) {
     logger.error('Failed to process message', { error });
@@ -311,19 +357,27 @@ async function processMediaRequest(
 ): Promise<void> {
   const downloader = MediaDownloader.getInstance();
   const actionManager = new ChatActionManager(ctx, chatId);
+  let filePaths: string[] = [];
+  let mediaItems: MediaItem[] = [];
 
   try {
     await actionManager.start('typing');
 
+    // Get media info — throws on failure for withRetry to retry
     logger.info('Fetching media info...', { ...logContext, requestId });
-    const mediaInfo = await withRetry(() => downloader.getMediaInfo(url), {
-      maxAttempts: 5,
-      initialDelay: 2000,
-      maxDelay: 15000,
-    });
-
-    if (!mediaInfo) {
-      logger.warn('Failed to get media information after retries', { ...logContext, requestId });
+    let mediaInfo: MediaMetadata;
+    try {
+      mediaInfo = await withRetry(() => downloader.getMediaInfo(url), {
+        maxAttempts: 5,
+        initialDelay: 2000,
+        maxDelay: 15000,
+      });
+    } catch (error) {
+      logger.warn('Failed to get media information after retries', {
+        ...logContext,
+        requestId,
+        error,
+      });
       await ctx.reply('Failed to get media information after several attempts', {
         reply_to_message_id: messageId,
       });
@@ -338,6 +392,7 @@ async function processMediaRequest(
           : 'upload_video';
     await actionManager.start(action);
 
+    // Download media — throws on transient errors for withRetry to retry
     logger.info(`Downloading ${mediaInfo.format} from ${url}`, { ...logContext, requestId });
     const result = await withRetry(
       () =>
@@ -367,29 +422,14 @@ async function processMediaRequest(
       return;
     }
 
-    const mediaItems = await buildMediaItems(result.filePaths, logContext, requestId);
+    filePaths = result.filePaths;
+    mediaItems = await buildMediaItems(filePaths, logContext, requestId);
 
     if (mediaItems.length > 1) {
       await sendMediaGroup(ctx, mediaItems, result.mediaInfo, url, messageId);
     } else {
       await sendSingleMedia(ctx, mediaItems[0], result.mediaInfo, url, messageId);
     }
-
-    await Promise.all(
-      mediaItems.map(async (item) => {
-        const files = [item.path];
-        if (item.isVideo) files.push(`${item.path}.thumb.jpg`);
-        await Promise.all(
-          files.map((file) =>
-            downloader
-              .cleanup(file)
-              .catch((error) =>
-                logger.warn('Failed to cleanup file', { ...logContext, requestId, file, error }),
-              ),
-          ),
-        );
-      }),
-    );
 
     logger.debug(`Successfully processed media request for ${userInfo}`, {
       ...logContext,
@@ -402,6 +442,7 @@ async function processMediaRequest(
       .catch(() => {});
   } finally {
     actionManager.stop();
+    await cleanupFiles(filePaths, mediaItems, downloader, logContext, requestId);
   }
 }
 
@@ -412,42 +453,49 @@ async function buildMediaItems(
 ): Promise<MediaItem[]> {
   return Promise.all(
     filePaths.map(async (path) => {
-      assertSafePath(path, env.TMP_DIR);
-      const probe = await probeMediaFile(path);
-      const isVideo = path.endsWith('.mp4');
+      return probeSemaphore.run(async () => {
+        assertSafePath(path, env.TMP_DIR);
+        const probe = await probeMediaFile(path);
 
-      let thumbnail: Buffer | null = null;
-      if (isVideo) {
-        logger.debug('Creating thumbnail for video', { ...logContext, requestId, path });
-        thumbnail = await generateThumbnail(path);
-        if (thumbnail) {
-          logger.debug('Thumbnail created successfully', {
-            ...logContext,
-            requestId,
-            size: thumbnail.length,
-          });
-        }
-      }
-
-      const { info, width, height } = extractStreamInfo(probe.streams, isVideo, probe.format);
-      const fileSize = probe.format?.size ? parseInt(probe.format.size) : 0;
-      const fileSizeMB = fileSize ? (fileSize / BYTES_PER_MB).toFixed(1) : '0';
-
-      if (fileSize > env.MAX_FILE_SIZE) {
-        throw new Error(
-          `Media file (${fileSizeMB}MB) exceeds size limit (${env.MAX_FILE_SIZE / BYTES_PER_MB}MB)`,
+        // Determine video from probe data, not file extension
+        const isVideo = probe.streams.some(
+          (s) => s.codec_type === 'video' && !IMAGE_CODECS.has(s.codec_name),
         );
-      }
 
-      return {
-        path,
-        isVideo,
-        thumbnail: thumbnail ?? undefined,
-        videoWidth: width,
-        videoHeight: height,
-        streamInfo: info,
-        fileSizeMB,
-      };
+        let thumbnail: Buffer | null = null;
+        if (isVideo) {
+          logger.debug('Creating thumbnail for video', { ...logContext, requestId, path });
+          thumbnail = await generateThumbnail(path);
+          if (thumbnail) {
+            logger.debug('Thumbnail created successfully', {
+              ...logContext,
+              requestId,
+              size: thumbnail.length,
+            });
+          }
+        }
+
+        const { info, width, height } = extractStreamInfo(probe.streams, isVideo, probe.format);
+        const fileSize = probe.format?.size ? parseInt(probe.format.size, 10) : 0;
+        const fileSizeMB =
+          Number.isFinite(fileSize) && fileSize > 0 ? (fileSize / BYTES_PER_MB).toFixed(1) : '0';
+
+        if (Number.isFinite(fileSize) && fileSize > env.MAX_FILE_SIZE) {
+          throw new Error(
+            `Media file (${fileSizeMB}MB) exceeds size limit (${env.MAX_FILE_SIZE / BYTES_PER_MB}MB)`,
+          );
+        }
+
+        return {
+          path,
+          isVideo,
+          thumbnail: thumbnail ?? undefined,
+          videoWidth: width,
+          videoHeight: height,
+          streamInfo: info,
+          fileSizeMB,
+        };
+      });
     }),
   );
 }

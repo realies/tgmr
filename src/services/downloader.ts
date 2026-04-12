@@ -1,9 +1,9 @@
 import { unlink } from 'fs/promises';
 import { env, getCookieFileForDomain } from '../config/env.js';
-import { logger } from '../utils/logger.js';
 import { withRetry } from '../utils/retry.js';
 import { safeExec } from '../utils/exec.js';
 import { assertSafePath } from '../utils/pathSafety.js';
+import { isDomainMatch } from '../utils/url.js';
 import type { DownloadOptions, DownloadResult } from '../types/index.js';
 
 const IMAGE_SITES = [
@@ -62,23 +62,18 @@ export class MediaDownloader {
   private isImageSite(url: string): boolean {
     const domain = this.getHostname(url);
     if (!domain) return false;
-    return IMAGE_SITES.some((site) => domain.endsWith(site));
+    return IMAGE_SITES.some((site) => isDomainMatch(domain, site));
   }
 
   /**
    * Gets media information without downloading.
-   * Single yt-dlp/gallery-dl call per request (no redundant invocations).
+   * Throws on failure so withRetry can retry transient errors.
    */
-  public async getMediaInfo(url: string): Promise<MediaMetadata | null> {
-    try {
-      if (this.isImageSite(url)) {
-        return await this.getGalleryDlInfo(url);
-      }
-      return await this.getYtDlpInfo(url);
-    } catch (error) {
-      logger.error('Failed to get media info', { error });
-      return null;
+  public async getMediaInfo(url: string): Promise<MediaMetadata> {
+    if (this.isImageSite(url)) {
+      return await this.getGalleryDlInfo(url);
     }
+    return await this.getYtDlpInfo(url);
   }
 
   private async getGalleryDlInfo(url: string): Promise<MediaMetadata> {
@@ -115,7 +110,6 @@ export class MediaDownloader {
   }
 
   private async getYtDlpInfo(url: string): Promise<MediaMetadata> {
-    // Single yt-dlp call: get metadata + codec info to determine audio vs video
     const printTemplate = [
       '{',
       '"url": %(url)j,',
@@ -167,30 +161,22 @@ export class MediaDownloader {
 
   /**
    * Downloads media from a URL. Accepts pre-fetched mediaInfo to avoid redundant calls.
+   * Throws on transient errors so withRetry can retry.
    */
   public async download(
     url: string,
     options: DownloadOptions,
     mediaInfo: MediaMetadata,
   ): Promise<DownloadResult> {
-    try {
-      const filePaths = this.isImageSite(url)
-        ? await this.downloadWithGalleryDl(url, options)
-        : await this.downloadWithYtDlp(url, options);
+    const filePaths = this.isImageSite(url)
+      ? await this.downloadWithGalleryDl(url, options)
+      : await this.downloadWithYtDlp(url, options);
 
-      if (filePaths.length === 0) {
-        return { success: false, error: 'No files were downloaded', filePaths: [] };
-      }
-
-      return { success: true, filePaths, mediaInfo };
-    } catch (error) {
-      logger.error('Failed to download media', { error });
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Unknown error occurred',
-        filePaths: [],
-      };
+    if (filePaths.length === 0) {
+      return { success: false, error: 'No files were downloaded', filePaths: [] };
     }
+
+    return { success: true, filePaths, mediaInfo };
   }
 
   private async downloadWithGalleryDl(url: string, options: DownloadOptions): Promise<string[]> {
@@ -204,14 +190,15 @@ export class MediaDownloader {
         '--filename',
         '{filename}.{extension}',
         '--no-mtime',
+        '--range',
+        `1-${MAX_FILES_PER_DOWNLOAD}`,
         ...this.getCookieArgs(url),
         url,
       ],
       { timeout: options.timeout },
     );
 
-    const filePaths = stdout.trim().split('\n').filter(Boolean).slice(0, MAX_FILES_PER_DOWNLOAD);
-
+    const filePaths = stdout.trim().split('\n').filter(Boolean);
     return filePaths.map((p) => assertSafePath(p, env.TMP_DIR));
   }
 
@@ -228,6 +215,8 @@ export class MediaDownloader {
         '--output',
         outputTemplate,
         '--restrict-filenames',
+        '--max-filesize',
+        String(options.maxFileSize),
         '--no-download-archive',
         '--no-write-info-json',
         '--no-write-description',
