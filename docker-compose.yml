@@ -7,6 +7,7 @@ services:
     restart: unless-stopped
     env_file: .env
     environment:
+      - BOT_TOKEN=${BOT_TOKEN:?Set BOT_TOKEN in .env}
       - MAX_FILE_SIZE=${MAX_FILE_SIZE:-50000000}
       - DOWNLOAD_TIMEOUT=${DOWNLOAD_TIMEOUT:-300}
       - RATE_LIMIT=${RATE_LIMIT:-10}

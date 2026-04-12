@@ -22,7 +22,7 @@
   "author": "",
   "license": "MIT",
   "engines": {
-    "node": ">=20.19.0"
+    "node": "^20.19.0 || ^22.13.0 || >=24.0.0"
   },
   "dependencies": {
     "grammy": "^1.41.1"
