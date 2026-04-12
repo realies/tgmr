@@ -21,7 +21,7 @@ export const env = {
   TMP_DIR: process.env.TMP_DIR || './tmp',
   SUPPORTED_DOMAINS: (process.env.SUPPORTED_DOMAINS || 'youtube.com,youtu.be')
     .split(',')
-    .map((d) => d.trim())
+    .map((d) => d.trim().toLowerCase())
     .filter(Boolean),
 } as const;
 

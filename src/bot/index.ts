@@ -34,11 +34,12 @@ export async function createBot(): Promise<Bot> {
         try {
           const botMember = await ctx.api.getChatMember(chatId!, ctx.me.id);
           const canSendMessages =
+            botMember.status === 'creator' ||
             botMember.status === 'administrator' ||
             ('can_send_messages' in botMember && botMember.can_send_messages);
 
           if (!canSendMessages) {
-            logger.error(`Bot lacks message permissions in chat ${chatId}`);
+            logger.warn(`Bot lacks message permissions in chat ${chatId}`);
             return;
           }
         } catch (permError) {

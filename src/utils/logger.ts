@@ -1,13 +1,19 @@
 class Logger {
   private static instance: Logger;
+  private static readonly LEVEL_RANK = new Map([
+    ['debug', 0],
+    ['info', 1],
+    ['warn', 2],
+    ['error', 3],
+  ]);
   private appName = 'tgmr';
-  private logLevel: 'debug' | 'info' | 'warn' | 'error' = 'info';
+  private minRank: number;
+  private logLevel: string;
 
   private constructor() {
     const envLogLevel = process.env.LOG_LEVEL?.toLowerCase();
-    if (envLogLevel && ['debug', 'info', 'warn', 'error'].includes(envLogLevel)) {
-      this.logLevel = envLogLevel as 'debug' | 'info' | 'warn' | 'error';
-    }
+    this.logLevel = envLogLevel && Logger.LEVEL_RANK.has(envLogLevel) ? envLogLevel : 'info';
+    this.minRank = Logger.LEVEL_RANK.get(this.logLevel) ?? 1;
   }
 
   public static getInstance(): Logger {
@@ -18,13 +24,11 @@ class Logger {
   }
 
   private shouldLog(level: string): boolean {
-    const levels = ['debug', 'info', 'warn', 'error'];
-    return levels.indexOf(level.toLowerCase()) >= levels.indexOf(this.logLevel);
+    return (Logger.LEVEL_RANK.get(level.toLowerCase()) ?? 0) >= this.minRank;
   }
 
   private formatMessage(level: string, message: string, context?: Record<string, unknown>): string {
-    let formattedMessage = `${this.appName} | ${level}:`;
-
+    let formatted = `${this.appName} | ${level}:`;
     if (context) {
       const essentialKeys = ['type', 'chat', 'from', 'msgId', 'requestId'];
       const essentialContext = Object.entries(context)
@@ -32,30 +36,28 @@ class Logger {
         .map(([key, value]) => `${key}=${value}`)
         .join(' ');
       if (essentialContext) {
-        formattedMessage += ` [${essentialContext}]`;
+        formatted += ` [${essentialContext}]`;
       }
     }
-
-    formattedMessage += ` ${message}`;
-    return formattedMessage;
+    formatted += ` ${message}`;
+    return formatted;
   }
 
   private colorize(level: string, message: string): string {
-    const colors = {
-      RESET: '\x1b[0m',
+    const colors: Record<string, string> = {
       ERROR: '\x1b[31m',
       WARN: '\x1b[33m',
       INFO: '\x1b[36m',
       DEBUG: '\x1b[90m',
-    } as const;
-    const color = colors[level as keyof typeof colors] || colors.INFO;
-    return `${color}${message}${colors.RESET}`;
+    };
+    const color = colors[level] || colors.INFO;
+    return `${color}${message}\x1b[0m`;
   }
 
   public info(message: string, context?: Record<string, unknown>): void {
     if (!this.shouldLog('info')) return;
-    const formattedMessage = this.formatMessage('INFO', message, context);
-    process.stdout.write(this.colorize('INFO', formattedMessage) + '\n');
+    const formatted = this.formatMessage('INFO', message, context);
+    process.stdout.write(this.colorize('INFO', formatted) + '\n');
   }
 
   public error(message: string, context?: Record<string, unknown>): void {
@@ -67,20 +69,20 @@ class Logger {
     } else if (error) {
       errorDetails = `: ${String(error)}`;
     }
-    const formattedMessage = this.formatMessage('ERROR', `${message}${errorDetails}`, context);
-    console.error(this.colorize('ERROR', formattedMessage));
+    const formatted = this.formatMessage('ERROR', `${message}${errorDetails}`, context);
+    process.stderr.write(this.colorize('ERROR', formatted) + '\n');
   }
 
   public warn(message: string, context?: Record<string, unknown>): void {
     if (!this.shouldLog('warn')) return;
-    const formattedMessage = this.formatMessage('WARN', message, context);
-    console.warn(this.colorize('WARN', formattedMessage));
+    const formatted = this.formatMessage('WARN', message, context);
+    process.stderr.write(this.colorize('WARN', formatted) + '\n');
   }
 
   public debug(message: string, context?: Record<string, unknown>): void {
     if (!this.shouldLog('debug')) return;
-    const formattedMessage = this.formatMessage('DEBUG', message, context);
-    process.stdout.write(this.colorize('DEBUG', formattedMessage) + '\n');
+    const formatted = this.formatMessage('DEBUG', message, context);
+    process.stdout.write(this.colorize('DEBUG', formatted) + '\n');
   }
 }
 

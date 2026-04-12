@@ -1,6 +1,5 @@
 import { unlink } from 'fs/promises';
 import { env, getCookieFileForDomain } from '../config/env.js';
-import { withRetry } from '../utils/retry.js';
 import { safeExec } from '../utils/exec.js';
 import { assertSafePath } from '../utils/pathSafety.js';
 import { isDomainMatch } from '../utils/url.js';
@@ -67,7 +66,7 @@ export class MediaDownloader {
 
   /**
    * Gets media information without downloading.
-   * Throws on failure so withRetry can retry transient errors.
+   * Throws on failure so the caller's withRetry can handle retries.
    */
   public async getMediaInfo(url: string): Promise<MediaMetadata> {
     if (this.isImageSite(url)) {
@@ -79,15 +78,22 @@ export class MediaDownloader {
   private async getGalleryDlInfo(url: string): Promise<MediaMetadata> {
     const { stdout } = await safeExec('gallery-dl', ['-j', ...this.getCookieArgs(url), url]);
 
-    let output: Array<[unknown, unknown, MediaType?]>;
+    let output: unknown;
     try {
       output = JSON.parse(stdout);
     } catch {
       throw new Error('Failed to parse gallery-dl JSON output');
     }
 
+    if (!Array.isArray(output) || output.length === 0) {
+      throw new Error('Unexpected gallery-dl output structure: expected non-empty array');
+    }
+
     const postMetadata = (output[0]?.[1] ?? {}) as Record<string, unknown>;
-    const mediaTypes = output.slice(1).map((item) => {
+    const mediaTypes = output.slice(1).map((item: unknown[]) => {
+      if (!Array.isArray(item) || item.length < 3 || !item[2]) {
+        return { url: String(item?.[1] ?? '') };
+      }
       const [, itemUrl, metadata] = item as [unknown, string, MediaType];
       const { display_url, ...rest } = metadata;
       return { ...rest, url: display_url || itemUrl };
@@ -110,6 +116,7 @@ export class MediaDownloader {
   }
 
   private async getYtDlpInfo(url: string): Promise<MediaMetadata> {
+    // No inner withRetry — the caller owns retry responsibility
     const printTemplate = [
       '{',
       '"url": %(url)j,',
@@ -121,16 +128,14 @@ export class MediaDownloader {
       '}',
     ].join('');
 
-    const { stdout } = await withRetry(() =>
-      safeExec('yt-dlp', [
-        '--no-download',
-        '--print',
-        printTemplate,
-        '--no-playlist',
-        ...this.getCookieArgs(url),
-        url,
-      ]),
-    );
+    const { stdout } = await safeExec('yt-dlp', [
+      '--no-download',
+      '--print',
+      printTemplate,
+      '--no-playlist',
+      ...this.getCookieArgs(url),
+      url,
+    ]);
 
     const cleanJson = stdout.replace(/: NA,/g, ': null,').replace(/: NA}/g, ': null}');
 
@@ -161,7 +166,7 @@ export class MediaDownloader {
 
   /**
    * Downloads media from a URL. Accepts pre-fetched mediaInfo to avoid redundant calls.
-   * Throws on transient errors so withRetry can retry.
+   * Throws on transient errors so the caller's withRetry can retry.
    */
   public async download(
     url: string,
@@ -199,13 +204,14 @@ export class MediaDownloader {
     );
 
     const filePaths = stdout.trim().split('\n').filter(Boolean);
-    return filePaths.map((p) => assertSafePath(p, env.TMP_DIR));
+    return filePaths.map((p) => assertSafePath(p.trimEnd(), env.TMP_DIR));
   }
 
   private async downloadWithYtDlp(url: string, options: DownloadOptions): Promise<string[]> {
     const formatSpec = this.getFormatSpec(options.format);
     const outputTemplate = `${env.TMP_DIR}/%(title)s-%(id)s.%(ext)s`;
 
+    // Use --print after_move:filepath for reliable path extraction
     const { stdout } = await safeExec(
       'yt-dlp',
       [
@@ -217,40 +223,20 @@ export class MediaDownloader {
         '--restrict-filenames',
         '--max-filesize',
         String(options.maxFileSize),
-        '--no-download-archive',
-        '--no-write-info-json',
-        '--no-write-description',
-        '--no-write-thumbnail',
-        '--no-progress',
+        '--quiet',
+        '--no-warnings',
+        '--print',
+        'after_move:filepath',
         ...this.getCookieArgs(url),
         url,
       ],
       { timeout: options.timeout },
     );
 
-    const filePath = this.extractFilePath(stdout);
+    const filePath = stdout.trimEnd().split('\n').pop()?.trim();
     if (!filePath) return [];
 
     return [assertSafePath(filePath, env.TMP_DIR)];
-  }
-
-  private extractFilePath(output: string): string | null {
-    const lines = output.split('\n').reverse();
-    for (const line of lines) {
-      if (line.includes('[Merger] Merging formats into')) {
-        const match = line.match(/Merging formats into "(.*?)"/);
-        if (match) return match[1];
-      }
-      if (line.includes('[ExtractAudio] Destination:')) {
-        const match = line.match(/Destination: (.*)/);
-        if (match) return match[1];
-      }
-      if (line.includes('[download] Destination:')) {
-        const match = line.match(/Destination: (.*)/);
-        if (match) return match[1];
-      }
-    }
-    return null;
   }
 
   public async cleanup(filePath: string): Promise<void> {

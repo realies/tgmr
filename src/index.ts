@@ -5,6 +5,14 @@ import { RateLimiter } from './utils/rateLimit.js';
 
 const SHUTDOWN_TIMEOUT_MS = 10_000;
 
+process.on('unhandledRejection', (reason) => {
+  logger.error('Unhandled promise rejection', { error: reason });
+});
+process.on('uncaughtException', (error) => {
+  logger.error('Uncaught exception', { error });
+  process.exit(1);
+});
+
 async function main(): Promise<void> {
   try {
     await Cleanup.init();
