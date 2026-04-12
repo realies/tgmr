@@ -5,21 +5,16 @@ services:
     container_name: tgmr
     image: realies/tgmr:latest
     restart: unless-stopped
+    env_file: .env
     environment:
-      - BOT_TOKEN=your_telegram_bot_token_here
-      - MAX_FILE_SIZE=50000000
-      - DOWNLOAD_TIMEOUT=300
-      - RATE_LIMIT=10
-      - COOLDOWN=60
-      - TMP_DIR=/tmp/tgmr
-      - SUPPORTED_DOMAINS=bandcamp.com,facebook.com,youtube.com,youtu.be,vimeo.com,soundcloud.com,mixcloud.com,instagram.com,twitter.com,x.com
-      # Cookie configuration (optional)
-      # - COOKIES_FILE=/cookies/default.txt  # Default fallback for all sites
-      # - COOKIES_FILE_YOUTUBE=/cookies/youtube.txt
-      # - COOKIES_FILE_INSTAGRAM=/cookies/instagram.txt
-      # - COOKIES_FILE_TWITTER=/cookies/twitter.txt  # Will be used for both twitter.com and x.com
-    # volumes:
-      # Mount cookies directory with write support (yt-dlp updates cookies)
-      # - ./cookies:/cookies
+      - BOT_TOKEN=${BOT_TOKEN:?Set BOT_TOKEN in .env}
+      - MAX_FILE_SIZE=${MAX_FILE_SIZE:-50000000}
+      - DOWNLOAD_TIMEOUT=${DOWNLOAD_TIMEOUT:-300}
+      - RATE_LIMIT=${RATE_LIMIT:-10}
+      - COOLDOWN=${COOLDOWN:-60}
+      - TMP_DIR=${TMP_DIR:-/tmp/tgmr}
+      - SUPPORTED_DOMAINS=${SUPPORTED_DOMAINS:-bandcamp.com,facebook.com,youtube.com,youtu.be,vimeo.com,soundcloud.com,mixcloud.com,instagram.com,twitter.com,x.com}
+    volumes:
+      - ./cookies:/cookies
     tmpfs:
       - /tmp/tgmr:exec,size=1G

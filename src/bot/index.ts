@@ -19,16 +19,16 @@ export async function createBot(): Promise<Bot> {
   // Set up command handlers
   bot.command('start', (ctx) =>
     ctx.reply(
-      "Hello! I can help you download media from various platforms. Just send me a link, and I'll reply with the media."
-    )
+      "Hello! I can help you download media from various platforms. Just send me a link, and I'll reply with the media.",
+    ),
   );
 
   bot.command('help', (ctx) =>
     ctx.reply(
       `Send me a link from ${getSupportedPlatforms()}, and I'll download and send you the media.\n\n` +
         "For audio-only content, I'll send it as a voice message. For videos, I'll send them as video files. " +
-        "For images, I'll send them in the highest quality available."
-    )
+        "For images, I'll send them in the highest quality available.",
+    ),
   );
 
   // Handle all messages
