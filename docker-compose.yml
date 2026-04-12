@@ -5,6 +5,11 @@ services:
     container_name: tgmr
     image: realies/tgmr:latest
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    pids_limit: 100
     env_file: .env
     environment:
       - BOT_TOKEN=${BOT_TOKEN:?Set BOT_TOKEN in .env}
@@ -17,4 +22,4 @@ services:
     volumes:
       - ./cookies:/cookies
     tmpfs:
-      - /tmp/tgmr:exec,size=1G
+      - /tmp/tgmr:noexec,nosuid,size=1G

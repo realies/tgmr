@@ -34,9 +34,9 @@ export async function withRetry<T>(
   for (let attempt = 1; attempt <= opts.maxAttempts; attempt++) {
     try {
       return await operation();
-    } catch (error) {
-      lastError = error as Error;
-      const errorMessage = lastError.message || String(error);
+    } catch (caught) {
+      lastError = caught instanceof Error ? caught : new Error(String(caught));
+      const errorMessage = lastError.message;
       const isRetryable = opts.retryableErrors.some((pattern) =>
         typeof pattern === 'string' ? errorMessage.includes(pattern) : pattern.test(errorMessage),
       );

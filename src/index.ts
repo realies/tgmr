@@ -1,19 +1,17 @@
 import { createBot } from './bot/index.js';
 import { logger } from './utils/logger.js';
 import { Cleanup } from './utils/cleanup.js';
+import { RateLimiter } from './utils/rateLimit.js';
 
 async function main(): Promise<void> {
   try {
-    // Initialize cleanup
     await Cleanup.init();
     Cleanup.startPeriodicCleanup();
     logger.info('Started cleanup service');
 
-    // Start the bot
     const bot = await createBot();
     logger.info('Starting bot...');
 
-    // Validate token first
     try {
       await bot.api.getMe();
     } catch (error) {
@@ -24,7 +22,17 @@ async function main(): Promise<void> {
       throw error;
     }
 
-    // Start bot with long polling
+    // Graceful shutdown
+    const shutdown = (): void => {
+      logger.info('Shutting down...');
+      bot.stop();
+      Cleanup.stop();
+      RateLimiter.getInstance().stop();
+      process.exit(0);
+    };
+    process.on('SIGTERM', shutdown);
+    process.on('SIGINT', shutdown);
+
     await bot.start({
       onStart: (botInfo) => {
         logger.info(`Bot @${botInfo.username} is starting...`);
@@ -32,12 +40,12 @@ async function main(): Promise<void> {
       drop_pending_updates: true,
     });
   } catch (error) {
-    logger.error('Failed to start bot', error);
+    logger.error('Failed to start bot', { error });
     process.exit(1);
   }
 }
 
 main().catch((error) => {
-  logger.error('Unhandled error in main', error);
+  logger.error('Unhandled error in main', { error });
   process.exit(1);
 });

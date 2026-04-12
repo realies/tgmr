@@ -1,10 +1,9 @@
 class Logger {
   private static instance: Logger;
   private appName = 'tgmr';
-  private logLevel: 'debug' | 'info' | 'warn' | 'error' = 'info'; // Default to info level
+  private logLevel: 'debug' | 'info' | 'warn' | 'error' = 'info';
 
   private constructor() {
-    // Set log level from environment variable if present
     const envLogLevel = process.env.LOG_LEVEL?.toLowerCase();
     if (envLogLevel && ['debug', 'info', 'warn', 'error'].includes(envLogLevel)) {
       this.logLevel = envLogLevel as 'debug' | 'info' | 'warn' | 'error';
@@ -20,15 +19,12 @@ class Logger {
 
   private shouldLog(level: string): boolean {
     const levels = ['debug', 'info', 'warn', 'error'];
-    const currentLevel = levels.indexOf(this.logLevel);
-    const messageLevel = levels.indexOf(level.toLowerCase());
-    return messageLevel >= currentLevel;
+    return levels.indexOf(level.toLowerCase()) >= levels.indexOf(this.logLevel);
   }
 
   private formatMessage(level: string, message: string, context?: Record<string, unknown>): string {
     let formattedMessage = `${this.appName} | ${level}:`;
 
-    // Only add essential context
     if (context) {
       const essentialKeys = ['type', 'chat', 'from', 'msgId', 'requestId'];
       const essentialContext = Object.entries(context)
@@ -47,12 +43,11 @@ class Logger {
   private colorize(level: string, message: string): string {
     const colors = {
       RESET: '\x1b[0m',
-      ERROR: '\x1b[31m', // Red
-      WARN: '\x1b[33m', // Yellow
-      INFO: '\x1b[36m', // Cyan
-      DEBUG: '\x1b[90m', // Gray
+      ERROR: '\x1b[31m',
+      WARN: '\x1b[33m',
+      INFO: '\x1b[36m',
+      DEBUG: '\x1b[90m',
     } as const;
-
     const color = colors[level as keyof typeof colors] || colors.INFO;
     return `${color}${message}${colors.RESET}`;
   }
@@ -63,15 +58,15 @@ class Logger {
     process.stdout.write(this.colorize('INFO', formattedMessage) + '\n');
   }
 
-  public error(message: string, error?: unknown, context?: Record<string, unknown>): void {
+  public error(message: string, context?: Record<string, unknown>): void {
     if (!this.shouldLog('error')) return;
     let errorDetails = '';
+    const error = context?.error;
     if (error instanceof Error) {
       errorDetails = `: ${error.message}`;
     } else if (error) {
       errorDetails = `: ${String(error)}`;
     }
-
     const formattedMessage = this.formatMessage('ERROR', `${message}${errorDetails}`, context);
     console.error(this.colorize('ERROR', formattedMessage));
   }
