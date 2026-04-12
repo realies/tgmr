@@ -30,12 +30,7 @@ export default [
       'no-multiple-empty-lines': ['error', { max: 1, maxEOF: 0, maxBOF: 0 }],
       'eol-last': ['error', 'always'],
       'no-whitespace-before-property': 'error',
-      'prettier/prettier': ['error', {
-        singleQuote: true,
-        trailingComma: 'es5',
-        printWidth: 100,
-        semi: true
-      }]
+      'prettier/prettier': 'error'
     }
   }
 ];

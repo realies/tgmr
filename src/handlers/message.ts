@@ -50,7 +50,7 @@ class ChatActionManager {
 
   constructor(
     private ctx: Context,
-    private chatId: number
+    private chatId: number,
   ) {}
 
   async start(action: ChatAction): Promise<void> {
@@ -214,7 +214,7 @@ export async function handleMessage(ctx: Context): Promise<void> {
           maxAttempts: 3,
           initialDelay: 3000,
           maxDelay: 20000,
-        }
+        },
       );
 
       // Stop the action before processing result
@@ -236,10 +236,10 @@ export async function handleMessage(ctx: Context): Promise<void> {
       const mediaInfos = await Promise.all(
         result.filePaths.map(async (path) => {
           const { stdout: ffprobeOutput } = await execAsync(
-            `ffprobe -v quiet -print_format json -show_format -show_streams "${path}"`
+            `ffprobe -v quiet -print_format json -show_format -show_streams "${path}"`,
           );
           return JSON.parse(ffprobeOutput) as FFprobeData;
-        })
+        }),
       );
 
       // Format stream info for each file
@@ -256,7 +256,7 @@ export async function handleMessage(ctx: Context): Promise<void> {
 
               // Extract first frame as thumbnail, scaled to Telegram's 320px limit
               await execAsync(
-                `ffmpeg -y -i "${path}" -vf "scale='min(320,iw)':'min(320,ih)':force_original_aspect_ratio=decrease" -q:v 6 -frames:v 1 "${thumbnailPath}"`
+                `ffmpeg -y -i "${path}" -vf "scale='min(320,iw)':'min(320,ih)':force_original_aspect_ratio=decrease" -q:v 6 -frames:v 1 "${thumbnailPath}"`,
               );
 
               // Verify file meets Telegram's thumbnail requirements (non-empty, <=200KB)
@@ -318,10 +318,10 @@ export async function handleMessage(ctx: Context): Promise<void> {
           if (fileSize > env.MAX_FILE_SIZE) {
             logger.warn(
               `File size ${fileSizeMB}MB exceeds limit of ${env.MAX_FILE_SIZE / 1024 / 1024}MB`,
-              { ...logContext, requestId }
+              { ...logContext, requestId },
             );
             throw new Error(
-              `Media file (${fileSizeMB}MB) exceeds Telegram's size limit (${env.MAX_FILE_SIZE / 1024 / 1024}MB)`
+              `Media file (${fileSizeMB}MB) exceeds Telegram's size limit (${env.MAX_FILE_SIZE / 1024 / 1024}MB)`,
             );
           }
 
@@ -334,13 +334,13 @@ export async function handleMessage(ctx: Context): Promise<void> {
             streamInfo,
             fileSizeMB,
           };
-        })
+        }),
       );
 
       // Escape special characters for MarkdownV2
       const escapedTitle = normalizeLineBreaks(result.mediaInfo.title).replace(
         /[_*[\]()~`>#+\-=|{}.!\\]/g,
-        '\\$&'
+        '\\$&',
       );
       const escapedUrl = url.replace(/[_*[\]()~`>#+\-=|{}.!\\]/g, '\\$&');
 
@@ -389,7 +389,7 @@ export async function handleMessage(ctx: Context): Promise<void> {
             const videoSummary = Array.from(videoFormats.entries())
               .map(
                 ([_, info]) =>
-                  `${info.count} ${info.codec} video${info.count > 1 ? 's' : ''} at ${info.dimensions}`
+                  `${info.count} ${info.codec} video${info.count > 1 ? 's' : ''} at ${info.dimensions}`,
               )
               .join(', ');
             formatSummary.push(videoSummary);
@@ -451,7 +451,7 @@ export async function handleMessage(ctx: Context): Promise<void> {
         const escapedSize = mediaItems[0].fileSizeMB.replace(/[_*[\]()~`>#+\-=|{}.!\\]/g, '\\$&');
 
         caption = [`[${escapedTitle}](${escapedUrl})`, `\`${escapedInfo}, ${escapedSize}MB\``].join(
-          '\n'
+          '\n',
         );
 
         const item = mediaItems[0];
@@ -494,11 +494,11 @@ export async function handleMessage(ctx: Context): Promise<void> {
               downloader
                 .cleanup(file)
                 .catch((error) =>
-                  logger.warn('Failed to cleanup file', { ...logContext, requestId, file, error })
-                )
-            )
+                  logger.warn('Failed to cleanup file', { ...logContext, requestId, file, error }),
+                ),
+            ),
           );
-        })
+        }),
       );
       logger.debug(`Successfully processed media request for ${userInfo}`, {
         ...logContext,
