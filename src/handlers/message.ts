@@ -17,10 +17,27 @@ const BYTES_PER_MB = 1024 * 1024;
 const MAX_MEDIA_GROUP_SIZE = 10;
 const MAX_CONCURRENT_DOWNLOADS = 5;
 const MAX_CONCURRENT_PROBES = 10;
+const MEDIA_INFO_CACHE_TTL = 5 * 60 * 1000;
 const downloadSemaphore = new Semaphore(MAX_CONCURRENT_DOWNLOADS);
 const probeSemaphore = new Semaphore(MAX_CONCURRENT_PROBES);
 
 const IMAGE_CODECS = new Set(['mjpeg', 'png', 'gif', 'webp', 'bmp', 'tiff', 'jpeg2000']);
+
+// Simple TTL cache for media info to avoid re-fetching the same URL
+const mediaInfoCache = new Map<string, { data: MediaMetadata; expiry: number }>();
+
+function getCachedMediaInfo(url: string): MediaMetadata | null {
+  const cached = mediaInfoCache.get(url);
+  if (!cached || Date.now() > cached.expiry) {
+    mediaInfoCache.delete(url);
+    return null;
+  }
+  return cached.data;
+}
+
+function cacheMediaInfo(url: string, data: MediaMetadata): void {
+  mediaInfoCache.set(url, { data, expiry: Date.now() + MEDIA_INFO_CACHE_TTL });
+}
 
 interface MediaItem {
   path: string;
@@ -43,48 +60,39 @@ export async function handleMessage(ctx: Context): Promise<void> {
   const chatType = ctx.chat?.type;
   const isAnonymousAdmin = ctx.from?.username === 'GroupAnonymousBot';
 
-  const logContext = {
-    type: chatType,
-    chat: chatId,
-    from: isAnonymousAdmin ? 'AnonymousAdmin' : username || userId,
-    msgId: messageId,
-  };
+  const logCtx = { type: chatType, chat: chatId, msgId: messageId };
   const userInfo = isAnonymousAdmin
     ? 'Anonymous Admin'
     : username
       ? `@${username}`
       : `user ${userId}`;
-  const requestId = `[${chatId}:${messageId}]`;
 
   if (!messageText || !chatId || !messageId) {
-    logger.warn('Skipping message due to missing text, chatId, or messageId', logContext);
+    logger.warn('Skipping: missing text, chatId, or messageId', logCtx);
     return;
   }
 
   try {
-    // Extract URLs first — only consume rate limit if there's a supported URL
     const urls = messageText.split(/\s+/).filter(isSupportedUrl);
     if (urls.length === 0) return;
 
-    // Rate limit: use chatId as fallback for anonymous admins
     const rateLimitKey = userId && !isAnonymousAdmin ? userId : chatId;
     if (!RateLimiter.getInstance().tryConsume(rateLimitKey)) {
-      logger.info(`Rate limit applied for ${userInfo}`, { ...logContext, requestId });
+      logger.info(`Rate limited ${userInfo}`, logCtx);
       await ctx.reply('You are sending requests too quickly. Please try again later.', {
         reply_to_message_id: messageId,
       });
       return;
     }
 
-    // Process only the first URL per message
     const url = urls[0];
-    logger.info(`${userInfo} requested: ${url}`, { ...logContext, requestId });
+    logger.info(`${userInfo} → ${url}`, logCtx);
 
     await downloadSemaphore.run(() =>
-      processMediaRequest(ctx, url, chatId, messageId, logContext, requestId, userInfo),
+      processMediaRequest(ctx, url, chatId, messageId, logCtx, userInfo),
     );
   } catch (error) {
-    logger.error('Failed to process message', { error });
+    logger.error('Failed to process message', { ...logCtx, error });
     await ctx.reply('Failed to process message').catch(() => {});
   }
 }
@@ -96,8 +104,7 @@ async function processMediaRequest(
   url: string,
   chatId: number,
   messageId: number,
-  logContext: Record<string, unknown>,
-  requestId: string,
+  logCtx: Record<string, unknown>,
   userInfo: string,
 ): Promise<void> {
   const downloader = MediaDownloader.getInstance();
@@ -106,7 +113,7 @@ async function processMediaRequest(
   let mediaItems: MediaItem[] = [];
 
   try {
-    const mediaInfo = await fetchMediaInfo(downloader, url, actionManager, logContext, requestId);
+    const mediaInfo = await fetchMediaInfo(downloader, url, actionManager, logCtx);
     if (!mediaInfo) {
       await ctx.reply('Failed to get media information after several attempts', {
         reply_to_message_id: messageId,
@@ -114,22 +121,11 @@ async function processMediaRequest(
       return;
     }
 
-    const result = await downloadMedia(
-      downloader,
-      url,
-      mediaInfo,
-      actionManager,
-      logContext,
-      requestId,
-    );
+    const result = await downloadMedia(downloader, url, mediaInfo, actionManager, logCtx);
     actionManager.stop();
 
     if (!result.success || result.filePaths.length === 0 || !result.mediaInfo) {
-      logger.error('Failed to process media after retries', {
-        ...logContext,
-        requestId,
-        error: result.error,
-      });
+      logger.error('Download failed', { ...logCtx, error: result.error });
       await ctx.reply('Failed to process media. Please try a different URL.', {
         reply_to_message_id: messageId,
       });
@@ -137,7 +133,7 @@ async function processMediaRequest(
     }
 
     filePaths = result.filePaths;
-    mediaItems = await buildMediaItems(filePaths, logContext, requestId);
+    mediaItems = await buildMediaItems(filePaths, logCtx);
 
     if (mediaItems.length > 1) {
       await sendMediaGroup(ctx, mediaItems, result.mediaInfo, url, messageId);
@@ -145,18 +141,15 @@ async function processMediaRequest(
       await sendSingleMedia(ctx, mediaItems[0], result.mediaInfo, url, messageId);
     }
 
-    logger.debug(`Successfully processed media request for ${userInfo}`, {
-      ...logContext,
-      requestId,
-    });
+    logger.debug(`Done for ${userInfo}`, logCtx);
   } catch (error) {
-    logger.error('Failed to process media request', { error });
+    logger.error('Failed to process media request', { ...logCtx, error });
     await ctx
       .reply('Failed to process media request', { reply_to_message_id: messageId })
       .catch(() => {});
   } finally {
     actionManager.stop();
-    await cleanupFiles(filePaths, mediaItems, downloader, logContext, requestId);
+    await cleanupFiles(filePaths, mediaItems, downloader, logCtx);
   }
 }
 
@@ -164,23 +157,27 @@ async function fetchMediaInfo(
   downloader: MediaDownloader,
   url: string,
   actionManager: ChatActionManager,
-  logContext: Record<string, unknown>,
-  requestId: string,
+  logCtx: Record<string, unknown>,
 ): Promise<MediaMetadata | null> {
+  // Check cache first
+  const cached = getCachedMediaInfo(url);
+  if (cached) {
+    logger.info(`Media info cache hit`, logCtx);
+    return cached;
+  }
+
   await actionManager.start('typing');
-  logger.info('Fetching media info...', { ...logContext, requestId });
+  logger.info('Fetching media info...', logCtx);
   try {
-    return await withRetry(() => downloader.getMediaInfo(url), {
+    const info = await withRetry(() => downloader.getMediaInfo(url), {
       maxAttempts: 5,
       initialDelay: 2000,
       maxDelay: 15000,
     });
+    cacheMediaInfo(url, info);
+    return info;
   } catch (error) {
-    logger.warn('Failed to get media information after retries', {
-      ...logContext,
-      requestId,
-      error,
-    });
+    logger.warn('Failed to get media info', { ...logCtx, error });
     return null;
   }
 }
@@ -190,8 +187,7 @@ async function downloadMedia(
   url: string,
   mediaInfo: MediaMetadata,
   actionManager: ChatActionManager,
-  logContext: Record<string, unknown>,
-  requestId: string,
+  logCtx: Record<string, unknown>,
 ): ReturnType<MediaDownloader['download']> {
   const action: ChatAction =
     mediaInfo.format === 'audio'
@@ -201,7 +197,7 @@ async function downloadMedia(
         : 'upload_video';
   await actionManager.start(action);
 
-  logger.info(`Downloading ${mediaInfo.format} from ${url}`, { ...logContext, requestId });
+  logger.info(`Downloading ${mediaInfo.format}`, logCtx);
   return withRetry(
     () =>
       downloader.download(
@@ -217,11 +213,8 @@ async function downloadMedia(
 
 async function buildMediaItems(
   filePaths: string[],
-  logContext: Record<string, unknown>,
-  requestId: string,
+  logCtx: Record<string, unknown>,
 ): Promise<MediaItem[]> {
-  // Use allSettled + semaphore so all probes complete before cleanup,
-  // and concurrent ffprobe/ffmpeg processes are bounded
   const results = await Promise.allSettled(
     filePaths.map((path) =>
       probeSemaphore.run(async () => {
@@ -234,11 +227,8 @@ async function buildMediaItems(
 
         let thumbnail: Buffer | null = null;
         if (isVideo) {
-          logger.debug('Creating thumbnail for video', { ...logContext, requestId, path });
+          logger.debug('Creating thumbnail', { ...logCtx, path });
           thumbnail = await generateThumbnail(path);
-          if (thumbnail) {
-            logger.debug('Thumbnail created', { ...logContext, requestId, size: thumbnail.length });
-          }
         }
 
         const { info, width, height } = extractStreamInfo(probe.streams, isVideo, probe.format);
@@ -265,7 +255,6 @@ async function buildMediaItems(
     ),
   );
 
-  // If any probe failed, throw the first error (after all have settled)
   const rejected = results.find((r): r is PromiseRejectedResult => r.status === 'rejected');
   if (rejected) throw rejected.reason;
 
@@ -338,17 +327,14 @@ async function cleanupFiles(
   filePaths: string[],
   mediaItems: MediaItem[],
   downloader: MediaDownloader,
-  logContext: Record<string, unknown>,
-  requestId: string,
+  logCtx: Record<string, unknown>,
 ): Promise<void> {
   const pathsToClean = new Set<string>();
 
-  // Raw download paths (covers buildMediaItems failure case)
   for (const p of filePaths) {
     pathsToClean.add(p);
   }
 
-  // Media item paths (thumbnails already deleted by generateThumbnail)
   for (const item of mediaItems) {
     pathsToClean.add(item.path);
   }
@@ -357,9 +343,7 @@ async function cleanupFiles(
     Array.from(pathsToClean).map((file) =>
       downloader
         .cleanup(file)
-        .catch((error) =>
-          logger.warn('Failed to cleanup file', { ...logContext, requestId, file, error }),
-        ),
+        .catch((error) => logger.warn('Cleanup failed', { ...logCtx, file, error })),
     ),
   );
 }

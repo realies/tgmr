@@ -5,11 +5,24 @@ const LEVEL_RANK = new Map([
   ['error', 3],
 ]);
 
-const ESSENTIAL_KEYS = new Set(['type', 'chat', 'from', 'msgId', 'requestId']);
+const LEVEL_PAD: Record<string, string> = {
+  DEBUG: 'DEBUG',
+  INFO: 'INFO ',
+  WARN: 'WARN ',
+  ERROR: 'ERROR',
+};
+
+const LEVEL_COLORS: Record<string, string> = {
+  ERROR: '\x1b[31m',
+  WARN: '\x1b[33m',
+  INFO: '\x1b[36m',
+  DEBUG: '\x1b[90m',
+};
+
+const RESET = '\x1b[0m';
 
 class Logger {
   private static instance: Logger;
-  private appName = 'tgmr';
   private minRank: number;
 
   private constructor() {
@@ -29,37 +42,27 @@ class Logger {
     return (LEVEL_RANK.get(level) ?? 0) >= this.minRank;
   }
 
-  private formatMessage(level: string, message: string, context?: Record<string, unknown>): string {
-    let formatted = `${this.appName} | ${level}:`;
-    if (context) {
-      const essentialContext = Object.entries(context)
-        .filter(([key]) => ESSENTIAL_KEYS.has(key))
-        .map(([key, value]) => `${key}=${value}`)
-        .join(' ');
-      if (essentialContext) {
-        formatted += ` [${essentialContext}]`;
-      }
+  private formatContext(context?: Record<string, unknown>): string {
+    if (!context) return '';
+    const parts: string[] = [];
+    if (context.chat) {
+      const type = context.type === 'private' ? 'pm' : context.type === 'supergroup' ? 'sg' : 'grp';
+      parts.push(`${type}:${context.chat}`);
     }
-    formatted += ` ${message}`;
-    return formatted;
+    if (context.msgId) parts.push(String(context.msgId));
+    return parts.length > 0 ? ` [${parts.join(':')}]` : '';
   }
 
-  private colorize(level: string, message: string): string {
-    const colors: Record<string, string> = {
-      ERROR: '\x1b[31m',
-      WARN: '\x1b[33m',
-      INFO: '\x1b[36m',
-      DEBUG: '\x1b[90m',
-    };
-    const color = colors[level] || colors.INFO;
-    return `${color}${message}\x1b[0m`;
+  private format(level: string, message: string, context?: Record<string, unknown>): string {
+    const ts = new Date().toISOString();
+    const ctx = this.formatContext(context);
+    return `${ts} ${LEVEL_PAD[level] || level}${ctx} ${message}`;
   }
 
   public info(message: string, context?: Record<string, unknown>): void {
     if (!this.shouldLog('info')) return;
-    process.stdout.write(
-      this.colorize('INFO', this.formatMessage('INFO', message, context)) + '\n',
-    );
+    const line = this.format('INFO', message, context);
+    process.stdout.write(`${LEVEL_COLORS.INFO}${line}${RESET}\n`);
   }
 
   public error(message: string, context?: Record<string, unknown>): void {
@@ -71,24 +74,20 @@ class Logger {
     } else if (error) {
       errorDetails = `: ${String(error)}`;
     }
-    process.stderr.write(
-      this.colorize('ERROR', this.formatMessage('ERROR', `${message}${errorDetails}`, context)) +
-        '\n',
-    );
+    const line = this.format('ERROR', `${message}${errorDetails}`, context);
+    process.stderr.write(`${LEVEL_COLORS.ERROR}${line}${RESET}\n`);
   }
 
   public warn(message: string, context?: Record<string, unknown>): void {
     if (!this.shouldLog('warn')) return;
-    process.stderr.write(
-      this.colorize('WARN', this.formatMessage('WARN', message, context)) + '\n',
-    );
+    const line = this.format('WARN', message, context);
+    process.stderr.write(`${LEVEL_COLORS.WARN}${line}${RESET}\n`);
   }
 
   public debug(message: string, context?: Record<string, unknown>): void {
     if (!this.shouldLog('debug')) return;
-    process.stdout.write(
-      this.colorize('DEBUG', this.formatMessage('DEBUG', message, context)) + '\n',
-    );
+    const line = this.format('DEBUG', message, context);
+    process.stdout.write(`${LEVEL_COLORS.DEBUG}${line}${RESET}\n`);
   }
 }
 
