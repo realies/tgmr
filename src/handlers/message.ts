@@ -19,7 +19,7 @@ const BYTES_PER_MB = 1024 * 1024;
 const MAX_MEDIA_GROUP_SIZE = 10;
 const MAX_CONCURRENT_DOWNLOADS = 5;
 const MAX_CONCURRENT_PROBES = 10;
-const DOWNLOAD_CACHE_TTL = 30 * 60 * 1000; // 30 minutes
+const DOWNLOAD_CACHE_TTL = 7 * 24 * 60 * 60 * 1000; // 7 days
 const downloadSemaphore = new Semaphore(MAX_CONCURRENT_DOWNLOADS);
 const probeSemaphore = new Semaphore(MAX_CONCURRENT_PROBES);
 

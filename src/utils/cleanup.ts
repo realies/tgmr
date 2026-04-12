@@ -5,7 +5,7 @@ import { env } from '../config/env.js';
 import { assertSafePath } from './pathSafety.js';
 
 export class Cleanup {
-  private static readonly MAX_AGE = 24 * 60 * 60 * 1000;
+  private static readonly MAX_AGE = 7 * 24 * 60 * 60 * 1000; // Match download cache TTL
   private static cleanupTimer: NodeJS.Timeout | null = null;
 
   public static async init(): Promise<void> {
