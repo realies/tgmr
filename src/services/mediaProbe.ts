@@ -98,7 +98,8 @@ export function extractStreamInfo(
         return `${stream.codec_name} ${dims}${bitrate ? ` ${bitrate}` : ''}`;
       }
       if (stream.codec_type === 'audio') {
-        const bitrate = parseBitrate(stream.bit_rate) || parseBitrate(format?.bit_rate);
+        // No format-level bitrate fallback for audio — it would duplicate the container bitrate
+        const bitrate = parseBitrate(stream.bit_rate);
         const sampleRate = parseSampleRate(stream.sample_rate);
         return `${stream.codec_name}${bitrate ? ` ${bitrate}` : ''}${sampleRate ? ` ${sampleRate}` : ''}`;
       }

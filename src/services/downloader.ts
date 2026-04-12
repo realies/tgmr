@@ -137,7 +137,8 @@ export class MediaDownloader {
       url,
     ]);
 
-    const cleanJson = stdout.replace(/: NA,/g, ': null,').replace(/: NA}/g, ': null}');
+    // Only duration uses %(...)s which can emit raw NA; other fields use %(...)j
+    const cleanJson = stdout.replace(/"duration": NA(?=[,}])/g, '"duration": null');
 
     let info: Record<string, unknown>;
     try {
@@ -203,8 +204,12 @@ export class MediaDownloader {
       { timeout: options.timeout },
     );
 
-    const filePaths = stdout.trim().split('\n').filter(Boolean);
-    return filePaths.map((p) => assertSafePath(p.trimEnd(), env.TMP_DIR));
+    const filePaths = stdout
+      .trim()
+      .split('\n')
+      .map((p) => p.trim())
+      .filter(Boolean);
+    return filePaths.map((p) => assertSafePath(p, env.TMP_DIR));
   }
 
   private async downloadWithYtDlp(url: string, options: DownloadOptions): Promise<string[]> {

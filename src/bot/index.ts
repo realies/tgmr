@@ -5,6 +5,23 @@ import { mkdir } from 'fs/promises';
 import { logger } from '../utils/logger.js';
 import { getSupportedPlatforms } from '../utils/url.js';
 
+// Cache bot permission checks per chat (5-minute TTL)
+const PERMISSION_CACHE_TTL = 5 * 60 * 1000;
+const permissionCache = new Map<number, { canSend: boolean; expiry: number }>();
+
+function getCachedPermission(chatId: number): boolean | null {
+  const cached = permissionCache.get(chatId);
+  if (!cached || Date.now() > cached.expiry) {
+    permissionCache.delete(chatId);
+    return null;
+  }
+  return cached.canSend;
+}
+
+function cachePermission(chatId: number, canSend: boolean): void {
+  permissionCache.set(chatId, { canSend, expiry: Date.now() + PERMISSION_CACHE_TTL });
+}
+
 export async function createBot(): Promise<Bot> {
   await mkdir(env.TMP_DIR, { recursive: true });
 
@@ -30,34 +47,42 @@ export async function createBot(): Promise<Bot> {
       const messageText = ctx.message?.text;
       const chatId = ctx.chat?.id;
 
-      if (chatType === 'group' || chatType === 'supergroup') {
-        try {
-          const botMember = await ctx.api.getChatMember(chatId!, ctx.me.id);
-          const canSendMessages =
-            botMember.status === 'creator' ||
-            botMember.status === 'administrator' ||
-            ('can_send_messages' in botMember && botMember.can_send_messages);
+      // Skip early if no URL candidate
+      if (!messageText?.includes('http')) return;
 
-          if (!canSendMessages) {
-            logger.warn(`Bot lacks message permissions in chat ${chatId}`);
+      // Check bot permissions in groups (with cache)
+      if (chatId && (chatType === 'group' || chatType === 'supergroup')) {
+        const cached = getCachedPermission(chatId);
+        if (cached === false) return;
+
+        if (cached === null) {
+          try {
+            const botMember = await ctx.api.getChatMember(chatId, ctx.me.id);
+            const canSendMessages =
+              botMember.status === 'creator' ||
+              botMember.status === 'administrator' ||
+              ('can_send_messages' in botMember && botMember.can_send_messages);
+
+            cachePermission(chatId, canSendMessages);
+            if (!canSendMessages) {
+              logger.warn(`Bot lacks message permissions in chat ${chatId}`);
+              return;
+            }
+          } catch (permError) {
+            logger.error('Failed to check bot permissions', { error: permError });
             return;
           }
-        } catch (permError) {
-          logger.error('Failed to check bot permissions', { error: permError });
-          return;
         }
       }
 
-      if (messageText?.includes('http')) {
+      try {
+        await handleMessage(ctx);
+      } catch (error) {
+        logger.error('Error in handleMessage', { error });
         try {
-          await handleMessage(ctx);
-        } catch (error) {
-          logger.error('Error in handleMessage', { error });
-          try {
-            await ctx.reply('Sorry, there was an error processing your request. Please try again.');
-          } catch (replyError) {
-            logger.error('Failed to send error message', { error: replyError });
-          }
+          await ctx.reply('Sorry, there was an error processing your request. Please try again.');
+        } catch (replyError) {
+          logger.error('Failed to send error message', { error: replyError });
         }
       }
     } catch (error) {

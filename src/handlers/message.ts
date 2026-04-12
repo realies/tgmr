@@ -1,5 +1,5 @@
 import { Context, InputFile } from 'grammy';
-import { isValidUrl, isSupportedPlatform } from '../utils/url.js';
+import { isSupportedUrl } from '../utils/url.js';
 import { MediaDownloader } from '../services/downloader.js';
 import type { MediaMetadata } from '../services/downloader.js';
 import { probeMediaFile, generateThumbnail, extractStreamInfo } from '../services/mediaProbe.js';
@@ -16,9 +16,7 @@ import type { ChatAction } from '../utils/chatAction.js';
 const BYTES_PER_MB = 1024 * 1024;
 const MAX_MEDIA_GROUP_SIZE = 10;
 const MAX_CONCURRENT_DOWNLOADS = 5;
-const MAX_CONCURRENT_PROBES = 10;
 const downloadSemaphore = new Semaphore(MAX_CONCURRENT_DOWNLOADS);
-const probeSemaphore = new Semaphore(MAX_CONCURRENT_PROBES);
 
 const IMAGE_CODECS = new Set(['mjpeg', 'png', 'gif', 'webp', 'bmp', 'tiff', 'jpeg2000']);
 
@@ -63,19 +61,17 @@ export async function handleMessage(ctx: Context): Promise<void> {
 
   try {
     // Extract URLs first — only consume rate limit if there's a supported URL
-    const words = messageText.split(/\s+/);
-    const urls = words.filter((word) => isValidUrl(word) && isSupportedPlatform(word));
+    const urls = messageText.split(/\s+/).filter(isSupportedUrl);
     if (urls.length === 0) return;
 
-    // Rate limit check AFTER URL extraction (non-URL messages don't count)
-    if (userId && !isAnonymousAdmin) {
-      if (!RateLimiter.getInstance().tryConsume(userId)) {
-        logger.info(`Rate limit applied for ${userInfo}`, { ...logContext, requestId });
-        await ctx.reply('You are sending requests too quickly. Please try again later.', {
-          reply_to_message_id: messageId,
-        });
-        return;
-      }
+    // Rate limit: use chatId as fallback for anonymous admins
+    const rateLimitKey = userId && !isAnonymousAdmin ? userId : chatId;
+    if (!RateLimiter.getInstance().tryConsume(rateLimitKey)) {
+      logger.info(`Rate limit applied for ${userInfo}`, { ...logContext, requestId });
+      await ctx.reply('You are sending requests too quickly. Please try again later.', {
+        reply_to_message_id: messageId,
+      });
+      return;
     }
 
     // Process only the first URL per message
@@ -223,46 +219,44 @@ async function buildMediaItems(
   requestId: string,
 ): Promise<MediaItem[]> {
   return Promise.all(
-    filePaths.map((path) =>
-      probeSemaphore.run(async () => {
-        assertSafePath(path, env.TMP_DIR);
-        const probe = await probeMediaFile(path);
+    filePaths.map(async (path) => {
+      assertSafePath(path, env.TMP_DIR);
+      const probe = await probeMediaFile(path);
 
-        const isVideo = probe.streams.some(
-          (s) => s.codec_type === 'video' && !IMAGE_CODECS.has(s.codec_name),
+      const isVideo = probe.streams.some(
+        (s) => s.codec_type === 'video' && !IMAGE_CODECS.has(s.codec_name),
+      );
+
+      let thumbnail: Buffer | null = null;
+      if (isVideo) {
+        logger.debug('Creating thumbnail for video', { ...logContext, requestId, path });
+        thumbnail = await generateThumbnail(path);
+        if (thumbnail) {
+          logger.debug('Thumbnail created', { ...logContext, requestId, size: thumbnail.length });
+        }
+      }
+
+      const { info, width, height } = extractStreamInfo(probe.streams, isVideo, probe.format);
+      const fileSize = probe.format?.size ? parseInt(probe.format.size, 10) : 0;
+      const fileSizeMB =
+        Number.isFinite(fileSize) && fileSize > 0 ? (fileSize / BYTES_PER_MB).toFixed(1) : '0';
+
+      if (Number.isFinite(fileSize) && fileSize > env.MAX_FILE_SIZE) {
+        throw new Error(
+          `Media file (${fileSizeMB}MB) exceeds size limit (${env.MAX_FILE_SIZE / BYTES_PER_MB}MB)`,
         );
+      }
 
-        let thumbnail: Buffer | null = null;
-        if (isVideo) {
-          logger.debug('Creating thumbnail for video', { ...logContext, requestId, path });
-          thumbnail = await generateThumbnail(path);
-          if (thumbnail) {
-            logger.debug('Thumbnail created', { ...logContext, requestId, size: thumbnail.length });
-          }
-        }
-
-        const { info, width, height } = extractStreamInfo(probe.streams, isVideo, probe.format);
-        const fileSize = probe.format?.size ? parseInt(probe.format.size, 10) : 0;
-        const fileSizeMB =
-          Number.isFinite(fileSize) && fileSize > 0 ? (fileSize / BYTES_PER_MB).toFixed(1) : '0';
-
-        if (Number.isFinite(fileSize) && fileSize > env.MAX_FILE_SIZE) {
-          throw new Error(
-            `Media file (${fileSizeMB}MB) exceeds size limit (${env.MAX_FILE_SIZE / BYTES_PER_MB}MB)`,
-          );
-        }
-
-        return {
-          path,
-          isVideo,
-          thumbnail: thumbnail ?? undefined,
-          videoWidth: width,
-          videoHeight: height,
-          streamInfo: info,
-          fileSizeMB,
-        };
-      }),
-    ),
+      return {
+        path,
+        isVideo,
+        thumbnail: thumbnail ?? undefined,
+        videoWidth: width,
+        videoHeight: height,
+        streamInfo: info,
+        fileSizeMB,
+      };
+    }),
   );
 }
 
@@ -337,15 +331,14 @@ async function cleanupFiles(
 ): Promise<void> {
   const pathsToClean = new Set<string>();
 
-  // Raw download paths (covers case where buildMediaItems fails before producing items)
+  // Raw download paths (covers buildMediaItems failure case)
   for (const p of filePaths) {
     pathsToClean.add(p);
   }
 
-  // Media item paths + video thumbnails
+  // Media item paths (thumbnails already deleted by generateThumbnail)
   for (const item of mediaItems) {
     pathsToClean.add(item.path);
-    if (item.isVideo) pathsToClean.add(`${item.path}.thumb.jpg`);
   }
 
   await Promise.all(

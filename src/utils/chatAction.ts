@@ -1,6 +1,5 @@
 import { Context } from 'grammy';
 import { logger } from './logger.js';
-import { withRetry } from './retry.js';
 
 export type ChatAction =
   | 'typing'
@@ -11,8 +10,8 @@ export type ChatAction =
 
 /**
  * Manages Telegram chat action indicators (typing, uploading, etc.)
- * with automatic periodic refresh using setTimeout recursion to
- * prevent overlapping retry chains.
+ * with automatic periodic refresh. Uses best-effort sends for ticks
+ * since chat actions are cosmetic signals.
  */
 export class ChatActionManager {
   private timer: NodeJS.Timeout | null = null;
@@ -28,9 +27,9 @@ export class ChatActionManager {
     this.stop();
     this.stopped = false;
     try {
-      await this.sendAction(action);
+      await this.ctx.api.sendChatAction(this.chatId, action);
     } catch (error) {
-      logger.error('Failed to start chat action', { error });
+      logger.debug('Failed to start chat action', { error });
       return;
     }
     this.scheduleNext(action);
@@ -42,24 +41,14 @@ export class ChatActionManager {
       if (this.inFlight || this.stopped) return;
       this.inFlight = true;
       try {
-        await this.sendAction(action);
-      } catch (error) {
-        if (!(error instanceof Error) || !error.message?.includes('Network request')) {
-          logger.error('Failed to send chat action', { error });
-        }
+        await this.ctx.api.sendChatAction(this.chatId, action);
+      } catch {
+        // Best-effort cosmetic signal — failures are non-critical
       } finally {
         this.inFlight = false;
         if (!this.stopped) this.scheduleNext(action);
       }
     }, 1000);
-  }
-
-  private async sendAction(action: ChatAction): Promise<void> {
-    await withRetry(() => this.ctx.api.sendChatAction(this.chatId, action), {
-      maxAttempts: 5,
-      initialDelay: 500,
-      maxDelay: 3000,
-    });
   }
 
   stop(): void {

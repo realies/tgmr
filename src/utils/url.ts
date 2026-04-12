@@ -1,14 +1,5 @@
 import { env } from '../config/env.js';
 
-export const isValidUrl = (url: string): boolean => {
-  try {
-    new URL(url);
-    return true;
-  } catch {
-    return false;
-  }
-};
-
 /**
  * Checks if a hostname matches a domain pattern.
  * Properly handles full domain matching to prevent partial matches
@@ -21,10 +12,11 @@ export const isDomainMatch = (hostname: string, domain: string): boolean => {
 };
 
 /**
- * Checks if the URL is from a supported media platform.
+ * Checks if a string is a valid URL from a supported platform.
+ * Combines URL parsing, protocol validation, and domain matching in a single pass.
  * Only allows http/https protocols.
  */
-export const isSupportedPlatform = (url: string): boolean => {
+export const isSupportedUrl = (url: string): boolean => {
   try {
     const parsed = new URL(url);
     if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') return false;
