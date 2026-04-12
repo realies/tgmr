@@ -57,10 +57,10 @@
     "@eslint/core" "^1.1.1"
     levn "^0.4.1"
 
-"@grammyjs/types@3.22.2":
-  version "3.22.2"
-  resolved "https://registry.yarnpkg.com/@grammyjs/types/-/types-3.22.2.tgz#e59410615a9c70c00e7ae96bc5cd7ed4852059ca"
-  integrity sha512-uu7DX2ezhnBPozL3bXHmwhLvaFsh59E4QyviNH4Cij7EdVekYrs6mCzeXsa2pDk30l3uXo7DBahlZLzTPtpYZg==
+"@grammyjs/types@3.25.0":
+  version "3.25.0"
+  resolved "https://registry.yarnpkg.com/@grammyjs/types/-/types-3.25.0.tgz#c69a966bf1d0dd77e062c3e069512af62b8855f2"
+  integrity sha512-iN9i5p+8ZOu9OMxWNcguojQfz4K/PDyMPOnL7PPCON+SoA/F8OKMH3uR7CVUkYfdNe0GCz8QOzAWrnqusQYFOg==
 
 "@humanfs/core@^0.19.1":
   version "0.19.1"
@@ -148,12 +148,12 @@
   resolved "https://registry.yarnpkg.com/@types/json-schema/-/json-schema-7.0.15.tgz#596a1747233694d50f6ad8a7869fcb6f56cf5841"
   integrity sha512-5+fP8P8MFNC+AyZCDxrB2pkZFPGzqQWUzpSeuuVLvm8VMcorNYavBqoFcxK8bQz4Qsbn4oUEEem4wDLfcysGHA==
 
-"@types/node@^24.10.2":
-  version "24.10.2"
-  resolved "https://registry.yarnpkg.com/@types/node/-/node-24.10.2.tgz#82a57476a19647d8f2c7750d0924788245e39b26"
-  integrity sha512-WOhQTZ4G8xZ1tjJTvKOpyEVSGgOTvJAfDK3FNFgELyaTpzhdgHVHeqW8V+UJvzF5BT+/B54T/1S2K6gd9c7bbA==
+"@types/node@^25.5.0":
+  version "25.5.0"
+  resolved "https://registry.yarnpkg.com/@types/node/-/node-25.5.0.tgz#5c99f37c443d9ccc4985866913f1ed364217da31"
+  integrity sha512-jp2P3tQMSxWugkCUKLRPVUpGaL5MVFwF8RDuSRztfwgN1wmqJeMSbKlnEtQqU8UrhTmzEmZdu2I6v2dpp7XIxw==
   dependencies:
-    undici-types "~7.16.0"
+    undici-types "~7.18.0"
 
 "@typescript-eslint/eslint-plugin@^8.57.1":
   version "8.57.1"
@@ -541,9 +541,9 @@ flat-cache@^4.0.0:
     keyv "^4.5.4"
 
 flatted@^3.2.9:
-  version "3.3.3"
-  resolved "https://registry.yarnpkg.com/flatted/-/flatted-3.3.3.tgz#67c8fad95454a7c7abebf74bb78ee74a44023358"
-  integrity sha512-GX+ysw4PBCz0PzosHDepZGANEuFCMLrnRTiEy9McGjmkCQYwRq4A/X786G/fjM/+OjsWSU1ZrY5qyARZmO/uwg==
+  version "3.4.2"
+  resolved "https://registry.yarnpkg.com/flatted/-/flatted-3.4.2.tgz#f5c23c107f0f37de8dbdf24f13722b3b98d52726"
+  integrity sha512-PjDse7RzhcPkIJwy5t7KPWQSZ9cAbzQXcafsetQoD7sOJRQlGikNbx7yZp2OotDnJyrDcbyRq3Ttb18iYOqkxA==
 
 fsevents@~2.3.2:
   version "2.3.3"
@@ -564,12 +564,12 @@ glob-parent@~5.1.2:
   dependencies:
     is-glob "^4.0.1"
 
-grammy@^1.38.4:
-  version "1.38.4"
-  resolved "https://registry.yarnpkg.com/grammy/-/grammy-1.38.4.tgz#f4703198edc21dd4feec2751508c966691ae8cb6"
-  integrity sha512-z07Kin3HgRwMdy40KUs+c9fmNBvGlSxGwcqY8NAH0a8KULGFYEMQaFAo3ge0V5tvmgr02Jgubkf54KjHLAMCbw==
+grammy@^1.41.1:
+  version "1.41.1"
+  resolved "https://registry.yarnpkg.com/grammy/-/grammy-1.41.1.tgz#8de850aea74d7a8f92fdf51707945e59b09071d4"
+  integrity sha512-wcHAQ1e7svL3fJMpDchcQVcWUmywhuepOOjHUHmMmWAwUJEIyK5ea5sbSjZd+Gy1aMpZeP8VYJa+4tP+j1YptQ==
   dependencies:
-    "@grammyjs/types" "3.22.2"
+    "@grammyjs/types" "3.25.0"
     abort-controller "^3.0.0"
     debug "^4.4.3"
     node-fetch "^2.7.0"
@@ -899,10 +899,10 @@ undefsafe@^2.0.5:
   resolved "https://registry.yarnpkg.com/undefsafe/-/undefsafe-2.0.5.tgz#38733b9327bdcd226db889fb723a6efd162e6e2c"
   integrity sha512-WxONCrssBM8TSPRqN5EmsjVrsv4A8X12J4ArBiiayv3DyyG3ZlIg6yysuuSYdZsVz3TKcTg2fd//Ujd4CHV1iA==
 
-undici-types@~7.16.0:
-  version "7.16.0"
-  resolved "https://registry.yarnpkg.com/undici-types/-/undici-types-7.16.0.tgz#ffccdff36aea4884cbfce9a750a0580224f58a46"
-  integrity sha512-Zz+aZWSj8LE6zoxD+xrjh4VfkIG8Ya6LvYkZqtUQGJPZjYl53ypCaUwWqo7eI0x66KBGeRo+mlBEkMSeSZ38Nw==
+undici-types@~7.18.0:
+  version "7.18.2"
+  resolved "https://registry.yarnpkg.com/undici-types/-/undici-types-7.18.2.tgz#29357a89e7b7ca4aef3bf0fd3fd0cd73884229e9"
+  integrity sha512-AsuCzffGHJybSaRrmr5eHr81mwJU3kjw6M+uprWvCXiNeN9SOGwQ3Jn8jb8m3Z6izVgknn1R0FTCEAP2QrLY/w==
 
 uri-js@^4.2.2:
   version "4.4.1"
