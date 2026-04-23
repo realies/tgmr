@@ -1,0 +1,11 @@
+node_modules
+dist
+tmp
+.git
+.env
+*.md
+*.log
+.DS_Store
+.vscode
+.idea
+cookies

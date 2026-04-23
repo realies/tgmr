@@ -20,6 +20,11 @@ const defaultOptions: Required<RetryOptions> = {
     'ECONNREFUSED',
     'socket hang up',
     'getaddrinfo',
+    'HTTP Error 429',
+    'HTTP Error 5',
+    'Read timed out',
+    'urlopen error',
+    'Too Many Requests',
   ],
 };
 
@@ -34,9 +39,9 @@ export async function withRetry<T>(
   for (let attempt = 1; attempt <= opts.maxAttempts; attempt++) {
     try {
       return await operation();
-    } catch (error) {
-      lastError = error as Error;
-      const errorMessage = lastError.message || String(error);
+    } catch (caught) {
+      lastError = caught instanceof Error ? caught : new Error(String(caught));
+      const errorMessage = lastError.message;
       const isRetryable = opts.retryableErrors.some((pattern) =>
         typeof pattern === 'string' ? errorMessage.includes(pattern) : pattern.test(errorMessage),
       );
@@ -45,13 +50,14 @@ export async function withRetry<T>(
         throw lastError;
       }
 
+      const jittered = delay * (0.8 + Math.random() * 0.4);
       logger.warn(
         `Operation failed (attempt ${attempt}/${opts.maxAttempts}), retrying in ${
-          delay / 1000
+          Math.round(jittered) / 1000
         }s: ${errorMessage}`,
       );
 
-      await new Promise((resolve) => setTimeout(resolve, delay));
+      await new Promise((resolve) => setTimeout(resolve, jittered));
       delay = Math.min(delay * opts.backoffFactor, opts.maxDelay);
     }
   }
