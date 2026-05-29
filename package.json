@@ -8,6 +8,7 @@
     "start": "node dist/index.js",
     "dev": "nodemon --watch 'src/**/*.ts' --exec 'ts-node' src/index.ts",
     "build": "tsc",
+    "test": "tsc -p tsconfig.test.json && BOT_TOKEN=test:token node --test 'dist-test/**/*.test.js'",
     "lint": "eslint \"src/**/*.ts\"",
     "lint:fix": "eslint \"src/**/*.ts\" --fix",
     "format": "prettier --write 'src/**/*.ts'"
