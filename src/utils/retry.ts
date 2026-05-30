@@ -13,6 +13,9 @@ const defaultOptions: Required<RetryOptions> = {
   initialDelay: 1000,
   maxDelay: 10000,
   backoffFactor: 2,
+  // Note: 429 / "Too Many Requests" are deliberately NOT retried here.
+  // Retrying a rate-limit lengthens the punitive backoff. Per-host cooldown
+  // (utils/hostCooldown) owns 429 handling instead.
   retryableErrors: [
     'Network request',
     'ETIMEDOUT',
@@ -20,6 +23,9 @@ const defaultOptions: Required<RetryOptions> = {
     'ECONNREFUSED',
     'socket hang up',
     'getaddrinfo',
+    'HTTP Error 5',
+    'Read timed out',
+    'urlopen error',
   ],
 };
 
@@ -28,15 +34,18 @@ export async function withRetry<T>(
   options: RetryOptions = {},
 ): Promise<T> {
   const opts = { ...defaultOptions, ...options };
+  if (!Number.isInteger(opts.maxAttempts) || opts.maxAttempts < 1) {
+    throw new RangeError(`maxAttempts must be a positive integer, got: ${opts.maxAttempts}`);
+  }
   let lastError: Error | undefined;
   let delay = opts.initialDelay;
 
   for (let attempt = 1; attempt <= opts.maxAttempts; attempt++) {
     try {
       return await operation();
-    } catch (error) {
-      lastError = error as Error;
-      const errorMessage = lastError.message || String(error);
+    } catch (caught) {
+      lastError = caught instanceof Error ? caught : new Error(String(caught));
+      const errorMessage = lastError.message;
       const isRetryable = opts.retryableErrors.some((pattern) =>
         typeof pattern === 'string' ? errorMessage.includes(pattern) : pattern.test(errorMessage),
       );
@@ -45,16 +54,17 @@ export async function withRetry<T>(
         throw lastError;
       }
 
+      const jittered = delay * (0.8 + Math.random() * 0.4);
       logger.warn(
         `Operation failed (attempt ${attempt}/${opts.maxAttempts}), retrying in ${
-          delay / 1000
+          Math.round(jittered) / 1000
         }s: ${errorMessage}`,
       );
 
-      await new Promise((resolve) => setTimeout(resolve, delay));
+      await new Promise((resolve) => setTimeout(resolve, jittered));
       delay = Math.min(delay * opts.backoffFactor, opts.maxDelay);
     }
   }
 
-  throw lastError;
+  throw lastError ?? new Error('withRetry: all attempts failed without a captured error');
 }

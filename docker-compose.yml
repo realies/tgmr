@@ -1,15 +1,24 @@
-version: '3.8'
-
 services:
   tgmr:
     container_name: tgmr
-    image: realies/tgmr:latest
+    build:
+      context: .
+      # Pass BUILD_DATE to bust the pipx install layer for fresh gallery-dl /
+      # yt-dlp. Default keeps the layer cache between rebuilds; for a forced
+      # refresh run: `BUILD_DATE=$(date -u +%s) docker compose up --build -d`.
+      args:
+        BUILD_DATE: ${BUILD_DATE:-static}
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    pids_limit: 100
     env_file: .env
     environment:
       - BOT_TOKEN=${BOT_TOKEN:?Set BOT_TOKEN in .env}
-      - MAX_FILE_SIZE=${MAX_FILE_SIZE:-50000000}
-      - DOWNLOAD_TIMEOUT=${DOWNLOAD_TIMEOUT:-300}
+      - MAX_FILE_SIZE=${MAX_FILE_SIZE:-52428800}
+      - DOWNLOAD_TIMEOUT=${DOWNLOAD_TIMEOUT:-120}
       - RATE_LIMIT=${RATE_LIMIT:-10}
       - COOLDOWN=${COOLDOWN:-60}
       - TMP_DIR=${TMP_DIR:-/tmp/tgmr}
@@ -17,4 +26,6 @@ services:
     volumes:
       - ./cookies:/cookies
     tmpfs:
-      - /tmp/tgmr:exec,size=1G
+      # In-RAM scratch for downloads — sized for the on-disk cache (~512MB) plus
+      # a few concurrent downloads. Raise if you increase MAX_FILE_SIZE/limits.
+      - /tmp/tgmr:noexec,nosuid,size=2G,uid=1000,gid=1000

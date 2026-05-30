@@ -4,3 +4,10 @@ updates:
     directory: "/"
     schedule:
       interval: "daily"
+  # Keeps the SHA-pinned actions in docker-build.yml current automatically
+  # (Dependabot bumps the pinned SHA + the `# vX` comment), so pinning doesn't
+  # become a manual-maintenance burden.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "daily"
