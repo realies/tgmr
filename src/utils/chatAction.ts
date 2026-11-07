@@ -2,11 +2,7 @@ import { Context } from 'grammy';
 import { logger } from './logger.js';
 
 export type ChatAction =
-  | 'typing'
-  | 'upload_photo'
-  | 'upload_video'
-  | 'upload_voice'
-  | 'upload_document';
+  'typing' | 'upload_photo' | 'upload_video' | 'upload_voice' | 'upload_document';
 
 /**
  * Manages Telegram chat action indicators (typing, uploading, etc.)
