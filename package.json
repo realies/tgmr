@@ -39,5 +39,8 @@
     "prettier": "^3.9.10",
     "ts-node": "^10.9.2",
     "typescript": "^6.0.3"
+  },
+  "resolutions": {
+    "minimatch": "^11.0.1"
   }
 }
