@@ -11,3 +11,8 @@ updates:
     directory: "/"
     schedule:
       interval: "daily"
+    # One PR for all action bumps. Ungrouped, unmerged minor bumps hit the
+    # 5-open-PR limit and silently froze action updates (Jul–Nov 2026).
+    groups:
+      actions:
+        patterns: ["*"]
